@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Whiteboard",
+  "version": "0.1.0",
+  "identifier": "com.whiteboard.dashboard",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "splash",
+        "title": "Whiteboard",
+        "width": 440,
+        "height": 280,
+        "resizable": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "sidecar/**/*"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://REPLACE-ME.invalid/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc4NkEwMTk1NkUyNjM4RjcKUldUM09DWnVsUUZxZUZWZEU2UXp4RTg2bUthYmt2ei9hNHViNlR1dWdGOWpxUXNteUhvaHc3Z1AK"
+    }
+  }
+}

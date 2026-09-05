@@ -1,0 +1,54 @@
+# --- credentials and personal data -----------------------------------------
+# Nothing here is recoverable once it is public, and most of it is either a
+# live credential or somebody's real coursework.
+
+.env
+.env.*
+!.env.example
+.bb_session.json
+.bb_google.json
+.bb_browser/
+
+# The JSON knowledge store: real grades, deadlines, announcements and your name.
+.blackboard-cache/
+blackboard-files/
+
+# Google hands this out as a download with a generated name, and the README
+# tells people to drop it straight into the app. It is a live OAuth secret.
+client_secret*.json
+
+# The updater's signing key. Publishing it is worse than losing it: anyone
+# could then sign an update that every installed copy would trust and run.
+*.key
+*.pem
+.tauri/
+
+# Generated from real due dates, and named by whoever exported it.
+*.ics
+
+# --- build output -----------------------------------------------------------
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+dist/
+
+# The desktop shell's build output. The sidecar is a 280MB frozen Python tree
+# and `target/` is Rust's; both are produced by `npm run sidecar` + `tauri build`.
+build/
+src-tauri/target/
+src-tauri/sidecar/
+src-tauri/gen/
+
+# --- editors and operating systems ------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.log

@@ -1,0 +1,15 @@
+{
+  "name": "whiteboard-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Desktop shell for the Whiteboard dashboard.",
+  "scripts": {
+    "sidecar": "python scripts/build_sidecar.py",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

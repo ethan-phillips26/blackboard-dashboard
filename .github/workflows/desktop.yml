@@ -1,0 +1,109 @@
+name: desktop
+
+# Nothing here cross-compiles: Tauri and PyInstaller both build for the machine
+# they run on, so each installer is produced on its own runner.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 rather than latest on purpose: the AppImage's bundled `strip`
+          # cannot read the .relr.dyn sections newer toolchains emit, and the
+          # glibc an AppImage is built against is the oldest it will run on.
+          - os: ubuntu-22.04
+            name: linux-x86_64
+          - os: windows-latest
+            name: windows-x86_64
+          # Two Macs, not a universal binary: a universal build would need a
+          # universal CPython for the sidecar, which PyInstaller does not
+          # produce. Apple Silicon and Intel get their own installer.
+          - os: macos-14
+            name: macos-arm64
+          - os: macos-13
+            name: macos-x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install Python dependencies
+        run: uv sync --dev
+
+      - name: Build the frontend
+        working-directory: src/blackboard_web/frontend
+        run: npm ci && npm run build
+
+      - name: Freeze the sidecar
+        run: uv run python scripts/build_sidecar.py
+
+      - name: Install the Tauri CLI
+        run: npm ci
+
+      # On a tag: build, sign, and collect every platform into one draft
+      # release, with the latest.json the updater reads. Draft on purpose —
+      # publishing is what makes the release visible to installed copies, and
+      # that stays a human decision.
+      - name: Bundle and draft the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Without these the bundles build unsigned, and an unsigned update is
+          # one the updater will refuse to install.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Whiteboard ${{ github.ref_name }}
+          releaseDraft: true
+          includeUpdaterJson: true
+
+      # On a manual run there is no tag to release against, so just build and
+      # keep the installers as artifacts — enough to test a change end to end.
+      - name: Bundle only
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run tauri build
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          name: whiteboard-${{ matrix.name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/dmg/*.dmg

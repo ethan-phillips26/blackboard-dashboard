@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Whiteboard</title>
+    <style>
+      /* Standalone by necessity: the dashboard's own stylesheet lives behind the
+         server this window is waiting for. */
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1a1a1a;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --accent: #2563eb;
+        --error: #b42318;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16181d;
+          --fg: #e8eaed;
+          --muted: #9aa0a6;
+          --line: #2c2f36;
+          --accent: #60a5fa;
+          --error: #f87171;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        padding: 28px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        text-align: center;
+        user-select: none;
+      }
+      h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+      #status { margin: 0; color: var(--muted); min-height: 21px; }
+      #bar {
+        width: 190px;
+        height: 3px;
+        border-radius: 2px;
+        background: var(--line);
+        overflow: hidden;
+      }
+      #bar::after {
+        content: "";
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: 2px;
+        background: var(--accent);
+        animation: slide 1.15s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(250%); }
+      }
+      /* The error state is the same window, re-dressed: a second window would
+         race the splash's own close. */
+      body.failed #bar { display: none; }
+      body.failed #status { color: var(--error); user-select: text; }
+      #hint { margin: 0; font-size: 12.5px; color: var(--muted); display: none; }
+      body.failed #hint { display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>Whiteboard</h1>
+    <p id="status">Starting&#8230;</p>
+    <div id="bar"></div>
+    <p id="hint">Quit and open it again. If it keeps failing, the log is in the terminal.</p>
+
+    <script>
+      // Called from Rust as the startup advances; kept on window so `eval` can
+      // reach them without any Tauri IPC being granted to this page.
+      window.setStatus = (text) => {
+        document.getElementById("status").textContent = text;
+      };
+      window.showError = (text) => {
+        document.body.classList.add("failed");
+        document.getElementById("status").textContent = text;
+      };
+    </script>
+  </body>
+</html>

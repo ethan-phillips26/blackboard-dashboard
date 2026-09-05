@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Only what the shell itself needs. The dashboard page is served over loopback and calls no Tauri API, so it is granted nothing.",
+  "windows": ["splash"],
+  "permissions": ["core:default"]
+}

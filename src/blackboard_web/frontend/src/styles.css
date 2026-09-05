@@ -1,0 +1,1447 @@
+/* ==========================================================================
+   Whiteboard — one stylesheet, three layers:
+   tokens → primitives (buttons, fields, panels, chips) → the screens.
+
+   Anything that appears on more than one screen is a primitive and is defined
+   once. A screen section may compose primitives but never redefines their
+   look, so a change to a button is a change to every button.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------ tokens */
+
+:root {
+  /* Surfaces, lightest to most raised. --panel-2 is an inset *inside* a
+     panel — search fields, segmented tracks, chips — never a card of its own. */
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --panel-2: #f1f4f8;
+  --hover: #e9edf4;
+
+  --ink: #14161b;
+  --ink-2: #464d5a;
+  --muted: #6b7280;
+
+  --line: #e3e7ee;
+  --line-2: #cdd4e0;
+
+  --accent: #2a78d6;
+  --accent-soft: #e7f0fc;
+  --ok: #15803d;
+  --warn: #b45309;
+  --bad: #c02929;
+
+  /* One radius scale. Controls are r-2, cards are r-4, nothing is arbitrary. */
+  --r-1: 5px;
+  --r-2: 8px;
+  --r-3: 10px;
+  --r-4: 13px;
+  --pill: 999px;
+
+  --shadow-1: 0 1px 2px rgba(16, 20, 30, .04), 0 1px 3px rgba(16, 20, 30, .05);
+  --shadow-2: 0 2px 6px rgba(16, 20, 30, .06), 0 8px 24px rgba(16, 20, 30, .07);
+  --shadow-3: 0 18px 52px rgba(16, 20, 30, .20);
+  --scrim: rgba(12, 15, 22, .44);
+
+  /* Course identity — eight validated categorical slots, assigned in a fixed
+     order and never cycled. Colour is always paired with the course's name. */
+  --s0: #2a78d6; --s1: #eb6834; --s2: #1baf7a; --s3: #d99100;
+  --s4: #e2679b; --s5: #0e93ad; --s6: #6d4fd0; --s7: #d94040;
+  color-scheme: light;
+}
+
+/* The app always stamps data-theme on <html> — "system" is resolved to a real
+   value in JS and re-resolved when the OS flips — so one dark block serves both
+   the system preference and an explicit choice, with no second copy to drift. */
+:root[data-theme="dark"] {
+  --bg: #0e1014;
+  --panel: #171a21;
+  --panel-2: #1e222b;
+  --hover: #262c37;
+
+  --ink: #e7e9ee;
+  --ink-2: #b9bfcc;
+  --muted: #939bab;
+
+  --line: #272c37;
+  --line-2: #3a4251;
+
+  --accent: #4a92ea;
+  --accent-soft: #17273d;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f0736f;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .34);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, .38), 0 8px 24px rgba(0, 0, 0, .30);
+  --shadow-3: 0 18px 52px rgba(0, 0, 0, .55);
+  --scrim: rgba(4, 6, 10, .62);
+
+  /* The same eight hues, stepped for the dark surface — not a flipped palette. */
+  --s0: #4a92ea; --s1: #f0784a; --s2: #2cc08c; --s3: #dfa726;
+  --s4: #ed7fae; --s5: #33b3ca; --s6: #9585ec; --s7: #ef6b6b;
+  color-scheme: dark;
+}
+
+.s0 { --series: var(--s0); } .s1 { --series: var(--s1); }
+.s2 { --series: var(--s2); } .s3 { --series: var(--s3); }
+.s4 { --series: var(--s4); } .s5 { --series: var(--s5); }
+.s6 { --series: var(--s6); } .s7 { --series: var(--s7); }
+
+/* -------------------------------------------------------------------- base */
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14.5px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 { line-height: 1.25; text-wrap: balance; }
+
+code {
+  font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--r-1); padding: 1px 5px;
+}
+
+/* One focus ring for the whole app, on the things that can actually take one. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Slim scrollbars, so a panel that scrolls says so without a slab of chrome. */
+* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-2); border-radius: var(--pill);
+  border: 3px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------- shell */
+
+.app { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
+
+.sidebar {
+  position: sticky; top: 0; align-self: start; min-width: 0;
+  height: 100vh; display: flex; flex-direction: column;
+  padding: 18px 12px; gap: 20px;
+  background: var(--panel); border-right: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; min-width: 0; }
+.brand-mark {
+  width: 28px; height: 28px; border-radius: var(--r-2); flex: none;
+  background: linear-gradient(140deg, var(--s0), var(--s6));
+  box-shadow: var(--shadow-1);
+}
+.brand > div { min-width: 0; }
+.brand-name {
+  font-weight: 650; font-size: 14.5px; letter-spacing: -0.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* A wrapper that is invisible to the column layout, and becomes the scrolling
+   strip when the sidebar lies down. */
+.nav-strip { display: contents; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nav {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: var(--r-2); min-width: 0;
+  font-size: 13.5px; color: var(--ink-2); text-decoration: none;
+  transition: background .12s, color .12s;
+}
+.nav:hover { background: var(--hover); color: var(--ink); }
+.nav.on { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+.nav .pill {
+  margin-left: auto; flex: none;
+  font-size: 11px; font-variant-numeric: tabular-nums; line-height: 17px;
+  color: var(--muted); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: var(--pill); padding: 0 6px;
+}
+.nav.on .pill { color: var(--accent); border-color: currentColor; background: transparent; }
+
+.nav-group { gap: 2px; }
+.nav-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); font-weight: 650; padding: 0 10px 6px;
+}
+/* A course name is whatever the registrar made it, so it gets one line and an
+   ellipsis rather than a chance to reflow the whole sidebar. */
+.nav-course-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.nav-foot { margin-top: auto; }
+
+.side-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 10px 0; margin-top: 12px; border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+/* The name takes the room and gives it back: a long one ellipses rather than
+   pushing the button it shares the line with off the edge. */
+.side-who {
+  flex: 1; min-width: 0; font-weight: 550; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.side-out { flex: none; padding: 4px 9px; min-height: 27px; font-size: 12px; }
+a.link { color: var(--accent); text-decoration: none; }
+a.link:hover { text-decoration: underline; }
+
+.main { min-width: 0; padding: 22px 26px 88px; max-width: 1560px; }
+
+/* Every screen opens with the same header block: title, one line of context,
+   and whatever actions belong to that screen, pinned right. */
+.topbar, .page-head {
+  display: flex; align-items: flex-start; gap: 10px 12px;
+  margin-bottom: 20px; flex-wrap: wrap;
+}
+.topbar > div:first-child, .page-head > div:first-child { min-width: 0; }
+.topbar h1, .page-head h1 {
+  font-size: 22px; margin: 0 0 3px; letter-spacing: -0.02em; font-weight: 650;
+}
+.topbar p, .page-head p { margin: 0; }
+.spacer { flex: 1 1 auto; min-width: 0; }
+
+/* A bare section: the same head as a panel, but the content sits on the page. */
+.section { margin-bottom: 16px; }
+
+.boot { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+
+/* ----------------------------------------------------------------- buttons */
+
+button, .btn {
+  font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 33px; white-space: nowrap;
+  background: var(--panel); color: var(--ink); text-decoration: none;
+  border: 1px solid var(--line-2); border-radius: var(--r-2); padding: 6px 12px;
+  transition: background .12s, border-color .12s, color .12s;
+}
+button:hover:not(:disabled), .btn:hover {
+  background: var(--hover); border-color: var(--line-2); color: var(--ink);
+}
+button:disabled, .btn[aria-disabled="true"] { opacity: .5; cursor: default; }
+
+button.primary, .btn.primary {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+button.primary:hover:not(:disabled), .btn.primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, #000);
+  border-color: color-mix(in srgb, var(--accent) 88%, #000); color: #fff;
+}
+
+/* Destructive, and only ever the second press: it appears once an action has
+   been armed, so it is loud on purpose. */
+button.danger {
+  background: var(--bad); border-color: var(--bad); color: #fff;
+}
+button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bad) 86%, #000);
+  border-color: color-mix(in srgb, var(--bad) 86%, #000); color: #fff;
+}
+
+/* The way back to Blackboard itself. Quiet by default — it is an escape hatch,
+   not the thing you came to this page for — and it never grows the row it sits
+   in. As a `.btn` it takes the button shape instead. */
+.bblink {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--muted); font-size: 12px; font-weight: 500;
+  text-decoration: none; white-space: nowrap; flex: none;
+}
+.bblink:hover { color: var(--accent); }
+.bblink .ext { font-size: 11px; opacity: .8; }
+.btn.bblink { color: var(--ink-2); font-size: 13px; }
+.btn.bblink:hover { color: var(--ink); }
+
+/* A text button: used inline in prose, so it carries no box of its own. */
+button.linkish {
+  border: 0; background: transparent; padding: 0; min-height: 0;
+  color: var(--accent); font-size: 12.5px; font-weight: 500;
+}
+button.linkish:hover:not(:disabled) {
+  background: transparent; color: var(--accent); text-decoration: underline;
+}
+
+/* ------------------------------------------------------------------ fields */
+
+/* Every control the app owns, whatever its type — the browser's own widget for
+   a date or a number would otherwise arrive at a different height and radius
+   from the text box beside it. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  font: inherit; font-size: 13px; font-weight: 400; width: 100%; min-height: 33px;
+  padding: 6px 10px; border-radius: var(--r-2);
+  border: 1px solid var(--line-2); background: var(--panel); color: var(--ink);
+  transition: border-color .12s, box-shadow .12s;
+}
+input:hover:not(:disabled):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select:hover:not(:disabled) { border-color: var(--muted); }
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+input::placeholder { color: var(--muted); }
+select {
+  padding-right: 30px; cursor: pointer; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 14px center, right 9px center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+input[type="number"] { -moz-appearance: textfield; }
+
+.field {
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: 12px; font-weight: 650; color: var(--muted);
+  letter-spacing: .01em; min-width: 0;
+}
+.field > span { display: block; }
+.field input, .field select { color: var(--ink); }
+
+/* ------------------------------------------------------------------ panels */
+
+.panel {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-4); padding: 16px 18px; margin-bottom: 16px;
+  box-shadow: var(--shadow-1); position: relative;
+}
+.panel:last-child { margin-bottom: 0; }
+
+.panel-head {
+  display: flex; align-items: center; gap: 6px 10px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.panel-head h2, .panel > h2, .section > .panel-head h2 {
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); margin: 0; font-weight: 650; white-space: nowrap;
+}
+.panel-head h3 { font-size: 14.5px; margin: 0; font-weight: 650; }
+/* The head's own buttons are quieter than the page's — they act on this panel. */
+.panel-head button, .panel-head .btn { font-size: 12.5px; min-height: 30px; padding: 4px 11px; }
+
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.grid {
+  display: grid; gap: 14px; align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+.split {
+  display: grid; gap: 16px; align-items: stretch;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+}
+.split > .panel { margin-bottom: 0; }
+.split { margin-bottom: 16px; }
+.split:last-child { margin-bottom: 0; }
+
+.label {
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); font-weight: 650;
+}
+.note { font-size: 12.5px; color: var(--ink-2); }
+.note.dim, .dim { color: var(--muted); }
+/* Prose gets a measure — a paragraph 1500px wide is not a paragraph. */
+.prose { max-width: 78ch; }
+
+/* The middot between two facts on one line. */
+.sep { color: var(--muted); opacity: .6; margin-inline: .4em; }
+
+/* A screen's own actions, kept together so they wrap as a group. */
+.actions { flex: none; gap: 8px; flex-wrap: nowrap; }
+
+/* An aside under something it qualifies — a footnote, not a new paragraph. */
+.foot-note { margin: 8px 0 0; }
+
+.err { color: var(--bad); font-size: 13px; margin: 8px 0 0; }
+/* A second line under an error is a next step, not more of the sentence. */
+.err .note { display: block; margin-top: 3px; }
+.err.banner {
+  background: color-mix(in srgb, var(--bad) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent);
+  border-radius: var(--r-2); padding: 9px 12px; margin: 0 0 14px;
+}
+.empty { color: var(--muted); font-size: 13.5px; margin: 0; padding: 4px 0; }
+
+.spin {
+  display: inline-block; width: 12px; height: 12px; flex: none;
+  border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; opacity: .6; vertical-align: -1px;
+  animation: sp .7s linear infinite;
+}
+@keyframes sp { to { transform: rotate(360deg); } }
+
+/* ------------------------------------------------------- chips and badges */
+
+/* The identity swatch that rides beside every course name. */
+.dot {
+  width: 9px; height: 9px; border-radius: 3px; flex: none;
+  background: var(--series, var(--muted));
+}
+
+/* A course's name, said quietly beside something of its own. */
+.course {
+  font-size: 11px; color: var(--muted); border: 1px solid var(--line-2);
+  padding: 1px 8px; border-radius: var(--pill); white-space: nowrap;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* A one-word status. Neutral by default; the modifiers carry the meaning. */
+.flag {
+  font-size: 11.5px; color: var(--muted); white-space: nowrap;
+  border: 1px solid var(--line-2); border-radius: var(--pill); padding: 1px 9px;
+}
+.flag.ok {
+  color: var(--ok); border-color: color-mix(in srgb, var(--ok) 42%, transparent);
+  background: color-mix(in srgb, var(--ok) 9%, transparent);
+}
+.flag.warn {
+  color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+
+.badge-new {
+  font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em;
+  background: var(--accent); color: #fff; padding: 2px 6px; border-radius: var(--r-1);
+  white-space: nowrap; line-height: 1.3;
+}
+
+.warn-box {
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border-radius: var(--r-2); padding: 11px 13px; font-size: 13px; margin: 12px 0 0;
+}
+.warn-box strong { color: var(--warn); }
+.warn-text { color: var(--warn); font-weight: 650; }
+
+/* A meter: the unfilled track is a lighter step of the fill's own hue. */
+.bar {
+  height: 6px; background: var(--accent-soft); border-radius: var(--pill);
+  overflow: hidden; width: 120px; flex: none;
+}
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+
+/* --------------------------------------------------------------- sign in */
+
+.login-panel {
+  width: min(420px, 100%);
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 26px 26px 24px; margin: 0;
+  box-shadow: var(--shadow-2);
+}
+.login-brand { display: flex; align-items: center; gap: 11px; }
+.login-panel h2 {
+  font-size: 19px; font-weight: 650; letter-spacing: -0.015em;
+  text-transform: none; color: var(--ink); margin: 0;
+}
+.login-panel p { margin: 0; }
+.login-panel .field + .field { margin-top: -3px; }
+.login-submit { width: 100%; margin-top: 4px; }
+.login-back { align-self: center; }
+
+/* ------------------------------------------------------------- auto sign-in */
+
+.auto-login { gap: 16px; }
+/* Which account is being used, said plainly — this screen acts on its own, so
+   it has to be obvious whose session it is bringing back. */
+.auto-who {
+  display: flex; flex-direction: column; gap: 1px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--r-2); padding: 10px 12px; font-size: 13.5px;
+}
+.auto-who b { font-weight: 650; }
+.auto-status {
+  display: flex; align-items: flex-start; gap: 10px;
+  font-size: 13.5px; color: var(--ink-2);
+}
+.auto-status .spin { margin-top: 4px; }
+.auto-duo { display: block; margin-top: 6px; }
+.auto-actions {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  margin-top: 2px;
+}
+.auto-actions .primary { width: 100%; }
+
+/* What the sign-in is waiting for, under the form. The Duo step gets the accent
+   because it is the one that is waiting on the reader rather than on us. */
+.login-stage {
+  display: flex; align-items: flex-start; gap: 9px;
+  margin: 2px 0 0; font-size: 13px; color: var(--ink-2);
+}
+.login-stage .spin { margin-top: 2px; flex: none; }
+.login-stage.waiting, .auto-status.waiting { color: var(--ink); font-weight: 500; }
+
+/* ---------------------------------------------------------- stats / figures */
+
+/* The deadline card is wider than a figure needs, because it carries a title
+   and a date as well. The ratio is what stops its longest line from leaving a
+   hole across the right of the card while still giving the date one line. */
+.stats {
+  display: grid; gap: 14px; margin-bottom: 16px;
+  grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr));
+}
+
+.hero, .tile {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-4); padding: 14px 16px; box-shadow: var(--shadow-1);
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+}
+/* The accent rides on the inside so the card's own edge stays the same width as
+   the three beside it and the row keeps one silhouette. */
+.hero { box-shadow: inset 3px 0 0 var(--accent), var(--shadow-1); }
+.hero.late { box-shadow: inset 3px 0 0 var(--bad), var(--shadow-1); }
+
+/* Every card ends on its caption, pinned to the floor, so the row reads on two
+   lines: the figures under the labels, the captions along the bottom. */
+.hero-body { flex: 1; display: flex; flex-direction: column;
+             justify-content: space-between; min-width: 0; }
+.hero-detail { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tile { justify-content: space-between; }
+
+/* A label is a fixed caption, not prose: it gets one line, so the figures below
+   sit on the same line across the row however long the words are. */
+.stats .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.hero-num {
+  font-size: 42px; line-height: 1.1; font-weight: 650; letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums; margin: 4px 0 6px;
+}
+.hero-unit {
+  font-size: 13.5px; font-weight: 500; color: var(--muted);
+  letter-spacing: 0; margin-left: 9px;
+}
+.hero.late .hero-num { color: var(--bad); }
+.hero-what { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hero-what b { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tile-num {
+  font-size: 32px; font-weight: 650; letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums; line-height: 1.2; margin: 4px 0 6px;
+}
+.tile.bad .tile-num { color: var(--bad); }
+.tile.ok .tile-num { color: var(--ok); }
+
+/* ---------------------------------------------------------------- calendar */
+
+.cal-nav { display: flex; gap: 4px; }
+.cal-nav button { padding: 4px 10px; min-height: 30px; }
+
+.cal-title { font-size: 15.5px; margin: 0 0 10px; letter-spacing: -0.01em; color: var(--ink-2); }
+.cal-title strong { font-weight: 650; color: var(--ink); }
+
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: minmax(88px, auto);
+  gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: var(--r-3); overflow: hidden;
+}
+.cal-wd {
+  background: var(--panel-2); color: var(--muted);
+  font-size: 10.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+  padding: 7px 4px; text-align: center;
+}
+.cal-cell {
+  background: var(--panel); padding: 5px 5px 6px; min-width: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  transition: background .1s;
+}
+.cal-cell.has { cursor: pointer; }
+.cal-cell.has:hover { background: var(--hover); }
+/* A day outside the month recedes, in either theme. */
+.cal-cell.out { background: color-mix(in srgb, var(--panel) 88%, var(--muted)); }
+.cal-cell.out .cal-num { color: var(--muted); opacity: .65; }
+.cal-cell.sel { background: var(--accent-soft); }
+
+/* A day with work in it is a button, so it has to shed every button default:
+   the grid decides its size, and what is inside it is a stack of lines rather
+   than a label on one. */
+button.cal-cell {
+  font: inherit; color: inherit; text-align: left; white-space: normal;
+  border: 0; border-radius: 0; min-height: 0; width: 100%; height: 100%;
+  align-items: stretch; justify-content: flex-start;
+}
+button.cal-cell:hover:not(:disabled) { background: var(--hover); }
+button.cal-cell.sel:hover:not(:disabled) { background: var(--accent-soft); }
+/* The grid clips at its rounded corners, so the ring goes inside the cell. */
+button.cal-cell:focus-visible { outline-offset: -2px; }
+
+.cal-num {
+  font: inherit; font-size: 12px; font-variant-numeric: tabular-nums;
+  color: var(--ink-2); background: transparent; border: 0;
+  padding: 1px 5px; align-self: flex-start; border-radius: var(--pill);
+  min-width: 22px; min-height: 0; text-align: center; justify-content: center;
+}
+button.cal-num { cursor: pointer; }
+button.cal-num:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.cal-cell.today .cal-num,
+.cal-cell.today button.cal-num:hover { background: var(--accent); color: #fff; font-weight: 650; }
+
+.chip {
+  border: 0; background: transparent; padding: 1px 4px; border-radius: var(--r-1);
+  display: flex; align-items: center; gap: 5px; width: 100%; flex: none;
+  min-height: 0; line-height: 1.35; font-size: 11.5px; font-weight: 400;
+  color: var(--ink); text-align: left; justify-content: flex-start;
+}
+/* No hover of its own: a chip is a preview of the day, and the day is what
+   highlights and what opens. */
+.chip .dot { width: 7px; height: 7px; border-radius: 2px; }
+.chip-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.past { opacity: .5; }
+.chip.past .chip-t { text-decoration: line-through; }
+
+.cal-more { font-size: 11px; color: var(--muted); padding-left: 7px; }
+.cal-count { display: none; font-size: 11px; color: var(--ink-2); padding-left: 3px; }
+
+.legend {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+}
+.lg {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
+  font-size: 12px; font-weight: 400; color: var(--ink-2); min-height: 26px;
+  background: transparent; border: 1px solid transparent;
+  border-radius: var(--pill); padding: 2px 10px 2px 8px;
+}
+.lg:hover:not(:disabled) { background: var(--hover); border-color: var(--line); color: var(--ink); }
+.lg-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg.on {
+  border-color: var(--series); color: var(--ink); font-weight: 650;
+  background: color-mix(in srgb, var(--series) 10%, transparent);
+}
+
+/* ------------------------------------------------------------- record rows */
+
+/* One row shape for everything that is "a thing you can open": a deadline, a
+   day's detail, a file. Full-bleed to the panel's padding so the divider runs
+   edge to edge while the text stays on the panel's own left margin. */
+.due, .detail, .set-item-head {
+  display: flex; width: 100%; text-align: left; justify-content: flex-start;
+  white-space: normal; font-weight: 400;
+  border: 0; border-radius: 0; background: transparent;
+  border-top: 1px solid var(--line);
+  margin-inline: -18px; padding-inline: 18px; width: calc(100% + 36px);
+  min-height: 0;
+}
+.due:hover:not(:disabled), .detail:hover:not(:disabled), .set-item-head:hover:not(:disabled) {
+  background: var(--hover); border-color: var(--line);
+}
+.due { gap: 11px; padding-block: 11px; align-items: flex-start; }
+/* A column flex row still inherits align-items:center from `button`, which
+   centred every line of a day's detail. */
+.detail { flex-direction: column; align-items: flex-start; gap: 3px; padding-block: 10px; }
+.detail-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.due-list > .due:first-child, .modal-body > .detail:first-child { border-top: 0; }
+.due .dot { margin-top: 6px; }
+.due-body {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  gap: 3px; align-items: flex-start;
+}
+.due-top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.due-top b { font-weight: 650; }
+.due .when {
+  flex: none; font-size: 12.5px; font-variant-numeric: tabular-nums;
+  text-align: right; padding-top: 1px; color: var(--ink-2);
+}
+.when.soon { color: var(--warn); font-weight: 650; }
+.when.bad { color: var(--bad); font-weight: 650; }
+.when.later { color: var(--muted); }
+
+/* "See all" at the foot of a preview list — a row, not a floating button. */
+.due-more {
+  width: calc(100% + 36px); margin: 0 -18px -16px; justify-content: center;
+  white-space: normal;
+  border: 0; border-top: 1px solid var(--line); border-radius: 0;
+  background: transparent; color: var(--accent); font-weight: 500;
+  padding: 11px 18px;
+}
+.due-more:hover:not(:disabled) { background: var(--hover); color: var(--accent); }
+
+/* ----------------------------------------------------------- course cards */
+
+/* Every course card is the same shape, so a row of them reads as a row. */
+.grid.cards { align-items: stretch; grid-auto-rows: 1fr; }
+
+.ccard {
+  display: flex; flex-direction: column; gap: 6px;
+  min-height: 170px; padding: 16px 17px; text-decoration: none; color: inherit;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-4); box-shadow: var(--shadow-1);
+  transition: border-color .12s, box-shadow .12s, transform .12s;
+}
+.ccard:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: var(--shadow-2); transform: translateY(-1px);
+}
+
+.ccard-head { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
+.ccard-head .dot { margin-top: 6px; }
+.ccard-head > div { min-width: 0; }
+.ccard-head h3 {
+  margin: 0 0 2px; font-size: 15px; font-weight: 650; letter-spacing: -0.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ccard .code {
+  color: var(--muted); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ccard-grade { margin: 8px 0 0; min-height: 38px; display: flex; align-items: flex-end; }
+.ccard-meta { margin-bottom: 2px; }
+.ccard-foot {
+  margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px; min-height: 40px;
+}
+.ccard-foot .go {
+  margin-left: auto; color: var(--muted); font-size: 16px; line-height: 1;
+  transition: transform .12s, color .12s;
+}
+.ccard:hover .go { color: var(--accent); transform: translateX(2px); }
+
+.big {
+  font-size: 30px; font-weight: 650; letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.big .letter { font-size: 16px; color: var(--muted); margin-left: 7px; font-weight: 500; }
+/* No grade yet: a full-size em dash reads as a stray rule, so it is said. */
+.big.none { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+
+/* -------------------------------------------------------------- course page */
+
+.back {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-bottom: 14px; font-size: 13px;
+  color: var(--muted); text-decoration: none;
+}
+.back:hover { color: var(--accent); }
+
+.course-head {
+  display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.course-head > div:first-child { min-width: 0; }
+.course-head h1 { margin: 0 0 3px; font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }
+.course-head p { margin: 0; }
+
+/* The link belongs to the name above it, so it is spaced as the last line of
+   that block rather than as a control: no box, no hover fill, and an arrow that
+   steps out on hover the way a link off the page should. */
+.course-bblink {
+  margin-top: 9px; padding: 3px 9px 3px 8px; border-radius: var(--pill);
+  border: 1px solid var(--line-2); background: var(--panel);
+  color: var(--ink-2); font-size: 12px; font-weight: 550;
+}
+.course-bblink:hover {
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line-2));
+  background: var(--accent-soft);
+}
+.course-bblink .ext { transition: transform .12s; }
+.course-bblink:hover .ext { transform: translate(1px, -1px); }
+/* The standing is a figure, so it sits in a figure's box rather than floating
+   in the whitespace above the tabs. */
+.course-score {
+  text-align: right; flex: none; padding: 9px 16px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-3); box-shadow: var(--shadow-1);
+}
+.course-score .label { display: block; margin-bottom: 1px; }
+.course-score .note { margin-top: 2px; }
+.tab-next {
+  margin-left: auto; max-width: 44ch;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tab-next b { font-weight: 650; color: var(--ink-2); }
+.map-row { margin-top: 10px; gap: 10px; flex-wrap: nowrap; }
+.map-row select { flex: 0 1 200px; }
+
+.tabbar { display: flex; align-items: center; gap: 10px 14px; margin-bottom: 16px; flex-wrap: wrap; }
+.tab-count {
+  font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted);
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--pill); padding: 0 6px; margin-left: 3px; line-height: 16px;
+}
+.seg button.on .tab-count { color: var(--accent); border-color: currentColor; background: transparent; }
+
+/* Key/value pairs that describe a course without needing a figure each. */
+.facts { margin: 0; display: flex; flex-direction: column; gap: 11px; }
+.facts > div { display: flex; gap: 14px; align-items: baseline; }
+.facts dt {
+  flex: none; width: 138px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--muted); font-weight: 650; line-height: 1.5;
+}
+.facts dd { margin: 0; font-size: 13.5px; color: var(--ink); min-width: 0; }
+
+/* Where a course's grade comes from: name, weight, meter, score. */
+.catrow {
+  display: flex; align-items: center; gap: 14px; font-size: 13.5px;
+  padding: 8px 0; border-top: 1px solid var(--line);
+}
+.panel-head + .catrow { border-top: 0; }
+.catrow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catrow .w {
+  color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px;
+  flex: none; width: 52px; text-align: right;
+}
+.catrow .w.score { color: var(--ink); font-weight: 650; }
+
+table.items { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.items td { padding: 9px 6px; border-top: 1px solid var(--line); vertical-align: middle; }
+table.items td:first-child { padding-left: 0; }
+table.items td:last-child { padding-right: 0; }
+table.items tr:first-child td { border-top: none; }
+table.items tr:hover td { background: var(--hover); }
+.it-name { width: auto; }
+.it-cat { white-space: nowrap; width: 1%; text-align: right; padding-right: 14px !important; }
+.it-score {
+  text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
+  color: var(--ink-2); width: 1%;
+}
+
+.calc { margin-top: 2px; }
+.calc .controls {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px;
+}
+.calc .controls > .field { flex: 0 0 96px; }
+.calc .controls > .field:first-child { flex: 1 1 190px; min-width: 150px; }
+.calc .controls > button { flex: none; }
+.result {
+  border-radius: var(--r-2); padding: 12px 14px; font-size: 13.5px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-2);
+}
+.result .num {
+  font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums;
+  color: var(--ink); letter-spacing: -0.02em; margin-bottom: 2px;
+}
+.result .num .dim { font-size: 14px; font-weight: 400; }
+.result.good { border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+               background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.result.bad { border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+              background: color-mix(in srgb, var(--bad) 8%, transparent); }
+
+/* ---------------------------------------------------------- announcements */
+
+.ann { display: flex; gap: 11px; padding: 14px 0; border-top: 1px solid var(--line); }
+.ann:first-of-type, .panel-head + .ann { border-top: none; padding-top: 2px; }
+.ann .dot { margin-top: 7px; }
+.ann-body { min-width: 0; flex: 1; }
+.ann-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.ann-top b { font-weight: 650; }
+.ann-text {
+  margin: 5px 0 0; font-size: 13px; color: var(--ink-2); max-width: 78ch;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.ann .linkish { margin-top: 6px; }
+
+/* ------------------------------------------------- overlays: scrim, modal, drawer */
+
+.scrim.over { z-index: 49; }
+.scrim {
+  position: fixed; inset: 0; z-index: 40;
+  background: var(--scrim); backdrop-filter: blur(1.5px);
+  animation: fade .14s ease-out;
+}
+@keyframes fade { from { opacity: 0; } }
+
+/* A day's deadlines, over the page rather than pushed in under the calendar —
+   which on the pinned dashboard would have squeezed the month to make room. */
+.modal {
+  position: fixed; z-index: 41; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(480px, calc(100vw - 32px)); max-height: min(72vh, 580px);
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-4); box-shadow: var(--shadow-3);
+  animation: pop .14s ease-out;
+}
+@keyframes pop {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(.98); }
+}
+.modal-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px; border-bottom: 1px solid var(--line);
+}
+.modal-head h3 { margin: 0; font-size: 15.5px; font-weight: 650; letter-spacing: -0.01em; }
+.modal-body { overflow-y: auto; padding: 6px 18px 14px; }
+
+/* The announcement popup is the same modal carrying prose rather than a list of
+   rows, so it gets the width prose needs and a footer for the way out that is
+   not "close". */
+.ann-modal { width: min(560px, calc(100vw - 32px)); }
+.ann-modal .modal-body { padding-bottom: 4px; }
+.modal-foot {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px 12px; border-top: 1px solid var(--line);
+}
+
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 41;
+  width: min(580px, 100vw);
+  display: flex; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-3);
+  animation: slide .16s ease-out;
+}
+@keyframes slide { from { transform: translateX(28px); opacity: .4; } }
+
+.drawer-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 18px 20px; border-bottom: 1px solid var(--line);
+}
+.drawer-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.drawer-title h3 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.015em; }
+.drawer-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.drawer-body { flex: 1; overflow-y: auto; padding: 18px 20px 44px; }
+
+.instructions {
+  margin: 0; font: inherit; font-size: 13.5px; line-height: 1.65;
+  color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
+  max-width: 78ch;
+}
+
+.drawer-files { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
+
+/* A handout is a name and the two things you can do with it. The actions live
+   on the row rather than one above the list and one beside each name, which was
+   two different places to press for one file. */
+.filerow {
+  /* The icon's width and the gap after it are what the second line has to clear
+     to sit under the name, so both are named once here and used by both. */
+  --fileext-w: 42px;
+  --filerow-gap: 12px;
+  display: flex; align-items: center; gap: 8px var(--filerow-gap); flex-wrap: wrap;
+  padding: 11px 0; border-top: 1px solid var(--line); font-size: 13px;
+}
+.panel-head + .filerow { border-top: none; padding-top: 2px; }
+
+/* Stands in for a file icon, and gives every row the same left edge. */
+.fileext {
+  flex: none; width: var(--fileext-w, 42px); text-align: center;
+  font-size: 9.5px; font-weight: 650; letter-spacing: .04em;
+  color: var(--muted); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: var(--r-1); padding: 3px 0;
+  overflow: hidden;
+}
+.fileid {
+  flex: 1 1 220px; min-width: 0;
+  display: flex; align-items: baseline; gap: 9px;
+}
+.filerow .fn {
+  min-width: 0; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.filerow .fsize {
+  flex: none; color: var(--muted); font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* Their own line, flush with the row's left edge — under the type chip, so the
+   whole row squares off against the same margin as everything else in the panel.
+   A filename is as long as the instructor made it and these are three buttons;
+   sharing one line meant the name ellipsed away to leave room for them, and on
+   a narrow drawer it wrapped anyway — so it wraps on purpose, and every row
+   breaks in the same place instead of each one deciding for itself. */
+.filerow-actions {
+  flex: 0 0 100%; display: flex; gap: 8px; justify-content: flex-start;
+}
+.filerow-actions button, .filerow-actions .btn { min-height: 30px; padding: 4px 11px; font-size: 12.5px; }
+
+/* ------------------------------------------------------- document viewer */
+
+/* A handout read in the page: near-full-bleed, because the thing being read is
+   a page of its own and anything smaller is a letterbox. */
+.viewer {
+  position: fixed; z-index: 50; inset: 28px;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-4); box-shadow: var(--shadow-3);
+  animation: pop-in .14s ease-out;
+}
+@keyframes pop-in { from { opacity: 0; transform: scale(.99); } }
+
+.viewer-head {
+  display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap;
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.viewer-id { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.viewer-id b {
+  font-weight: 650; font-size: 14.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.viewer-head .spacer { flex: 1 1 20px; }
+
+.viewer-body { flex: 1; min-height: 0; background: var(--panel-2); position: relative; }
+/* Covers the frame being written into rather than replacing it, because the
+   renderer needs its container to already be on the page. */
+.viewer-busy {
+  position: absolute; inset: 0; margin: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  background: var(--panel-2); color: var(--muted); font-size: 13.5px;
+}
+
+/* The browser's own PDF reader, given the whole panel. */
+.viewer-body.kind-pdf { display: flex; }
+.viewer-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+
+.viewer-body.kind-image,
+.viewer-body.kind-video,
+.viewer-body.kind-audio,
+.viewer-body.kind-none { display: grid; place-items: center; padding: 24px; overflow: auto; }
+.viewer-image { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--r-2); }
+.viewer-media { max-width: 100%; max-height: 100%; border-radius: var(--r-2); }
+.viewer-media[controls] { width: min(880px, 100%); }
+
+.viewer-fallback {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  text-align: center; max-width: 46ch;
+}
+.viewer-fallback .err, .viewer-fallback .note { margin: 0; }
+
+.viewer-body.kind-text { overflow: auto; padding: 22px 24px; }
+.viewer-text {
+  margin: 0; max-width: 110ch;
+  font: 12.5px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* Word writes its own page geometry, so the container only centres it. */
+.viewer-body.kind-docx { overflow: auto; padding: 22px 16px; }
+.viewer-docx { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.viewer-docx .docx-wrapper { background: transparent; padding: 0; display: grid; gap: 18px; }
+.viewer-docx .docx-wrapper > section.docx {
+  box-shadow: var(--shadow-2); border-radius: var(--r-2);
+  /* Word's own colours are absolute, so the page stays a page in both themes. */
+  background: #fff; color: #111;
+}
+
+/* A deck, read rather than played: each slide is a card in the order it runs. */
+.viewer-body.kind-pptx { overflow: auto; padding: 22px 16px; }
+.deck { display: flex; flex-direction: column; gap: 16px; max-width: 900px; margin: 0 auto; }
+.slide {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-4); box-shadow: var(--shadow-1); padding: 18px 20px;
+}
+.slide-no {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); font-weight: 650; margin-bottom: 6px;
+}
+.slide h3 { margin: 0 0 10px; font-size: 17px; font-weight: 650; letter-spacing: -0.015em; }
+.slide-images { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.slide-images img {
+  max-width: 100%; max-height: 340px; border-radius: var(--r-2);
+  border: 1px solid var(--line); background: #fff;
+}
+.slide-lines { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; }
+.slide-lines li { font-size: 13.5px; color: var(--ink-2); white-space: pre-wrap; }
+.slide-notes { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.slide-notes summary {
+  cursor: pointer; font-size: 12px; color: var(--muted); font-weight: 650;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.slide-notes p { margin: 8px 0 0; font-size: 13px; color: var(--ink-2); white-space: pre-wrap; }
+
+/* The name of a file you can read is the way in to reading it. */
+.filerow .fn.linkish {
+  text-align: left; color: var(--ink); font-weight: 500; font-size: 13px;
+  max-width: 100%;
+}
+.filerow .fn.linkish:hover:not(:disabled) { color: var(--accent); text-decoration: underline; }
+
+.mat-file .fileext { width: 34px; padding: 1px 0; font-size: 9px; }
+
+@media (max-width: 720px) {
+  .viewer { inset: 0; border-radius: 0; border: 0; }
+  .viewer-body.kind-docx, .viewer-body.kind-pptx { padding: 14px 10px; }
+}
+
+/* ---------------------------------------------------------------- settings */
+
+.seg {
+  display: inline-flex; gap: 2px; padding: 3px; max-width: 100%;
+  border-radius: var(--r-3); flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-1);
+}
+.seg button {
+  border: 0; background: transparent; border-radius: var(--r-2);
+  padding: 6px 14px; font-size: 13px; color: var(--ink-2); min-height: 30px;
+}
+.seg button:hover:not(.on) { background: var(--hover); color: var(--ink); }
+.seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+
+/* A screen whose whole content is prose gets a column, not the full width. */
+.reading { max-width: 960px; }
+
+.set-note { max-width: 68ch; margin: 0 0 14px; }
+.set-search { margin-bottom: 12px; }
+
+.set-course { padding: 2px 0 0; }
+.set-course-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; flex-wrap: wrap; }
+
+.set-weight {
+  display: flex; align-items: center; gap: 12px;
+  padding: 5px 0; font-size: 13.5px; color: var(--ink);
+}
+.set-weight-label { flex: 1; min-width: 0; }
+.set-weight input { width: 88px; flex: none; text-align: right; }
+.set-weight .note { flex: none; width: 12px; }
+
+.set-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+
+.set-item {
+  border-top: 1px solid var(--line);
+  margin-inline: -18px; padding-inline: 18px;
+}
+.panel-head + .set-item, .set-search + .set-item { border-top: none; }
+.set-item-head { align-items: center; gap: 12px; padding-block: 11px; }
+/* "Edit" / "Close" is the row's affordance, so it reads as one. */
+.set-item-head > .note:last-child { color: var(--accent); flex: none; }
+.set-item-id {
+  flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 3px 8px;
+  align-items: center;
+}
+.set-item-id b { font-weight: 650; }
+.set-item-id .note { flex-basis: 100%; }
+.set-item.open { background: var(--panel-2); }
+.set-item.open > .set-item-head { background: transparent; }
+
+.set-item-body {
+  display: grid; gap: 12px 14px; padding: 6px 0 18px;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, .7fr);
+  align-items: end;
+}
+.set-item-body .err, .set-item-body .set-actions { grid-column: 1 / -1; }
+
+.set-card { min-height: 0; gap: 10px; }
+.set-card-meta { display: flex; flex-direction: column; gap: 3px; }
+.set-card .ccard-foot { min-height: 40px; }
+
+.set-hidden { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.set-hidden .label { display: block; margin-bottom: 4px; }
+.set-hidden-row {
+  display: flex; align-items: center; gap: 10px; padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+.set-hidden .label + .set-hidden-row { border-top: none; }
+
+/* ------------------------------------------------------------ google setup */
+
+.gsetup-intro { margin: 0 0 14px; max-width: 68ch; }
+
+/* A numbered console errand each, so it is obvious how many are left. */
+.gsteps { list-style: none; margin: 0 0 16px; padding: 0; display: grid; gap: 12px; }
+.gsteps li { display: flex; gap: 11px; align-items: flex-start; max-width: 78ch; }
+.gsteps a { color: var(--accent); text-decoration: none; font-weight: 650; font-size: 13.5px; }
+.gsteps a:hover { text-decoration: underline; }
+.gstep-n {
+  flex: none; width: 21px; height: 21px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums;
+  display: grid; place-items: center; margin-top: 1px;
+}
+
+.gdrop, .gconnect {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--r-3); padding: 14px 16px;
+}
+.gdrop > div:first-child, .gconnect > div:first-child { min-width: 0; flex: 1 1 320px; }
+.gdrop input[type="file"] { font-size: 12.5px; max-width: 100%; }
+.gmanual { display: grid; gap: 12px; margin-top: 14px; max-width: 440px; }
+.gmanual button { justify-self: start; }
+.gclient {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);
+  overflow-wrap: anywhere; font-size: 12px;
+}
+
+/* --------------------------------------------------------- course materials */
+
+/* One card holding the whole tree, rather than a card per folder: a course is
+   a list of weeks, and twelve identical floating bars is not a list. */
+.mat-tree {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-4); box-shadow: var(--shadow-1); overflow: hidden;
+}
+.mat-tree > .mat-folder, .mat-tree > .mat-item {
+  border: 0; border-top: 1px solid var(--line); border-radius: 0;
+  box-shadow: none; background: transparent;
+}
+.mat-tree > :first-child { border-top: 0; }
+
+.mat-folder { background: transparent; }
+.mat-folder-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 13px 18px; border: 0; border-radius: 0; min-height: 0;
+  background: transparent; text-align: left; font-size: 14.5px;
+  justify-content: flex-start; font-weight: 400; white-space: normal;
+}
+.mat-folder-head:hover:not(:disabled) { background: var(--hover); border-color: transparent; }
+.mat-folder-head b { font-weight: 650; }
+.mat-folder .mat-folder { border-top: 1px solid var(--line); }
+.mat-folder .mat-folder .mat-folder-head { font-size: 13.5px; padding: 11px 18px; }
+
+.caret {
+  display: inline-block; color: var(--muted); font-size: 15px; line-height: 1;
+  transition: transform .14s; flex: none; width: 10px; text-align: center;
+}
+.caret.open { transform: rotate(90deg); }
+
+.mat-folder-body { padding: 0 18px 10px; }
+.mat-folder .mat-folder > .mat-folder-body { padding-left: 30px; }
+
+.mat-item { padding: 12px 0; border-top: 1px solid var(--line); }
+.mat-folder-body > .mat-item:first-child { border-top: none; }
+.mat-tree > .mat-item { padding: 13px 18px; }
+.mat-item.hit { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+
+.mat-row { display: flex; align-items: flex-start; gap: 11px; }
+.mat-id { flex: 1; min-width: 0; }
+.mat-title { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.mat-title b { font-weight: 650; }
+/* The separator carries the spacing, so the row itself adds none. */
+.mat-meta { display: flex; align-items: center; flex-wrap: wrap; margin-top: 3px; }
+.mat-meta-part { display: inline-flex; align-items: center; white-space: nowrap; }
+.mat-more { margin-top: 6px; }
+/* A row's controls, stacked: the Blackboard link on top, Open under it. Both
+   are right-aligned by the column, so the two share a right edge and the Open
+   buttons still line up down the page whether or not a row has a link above it.
+   `.mat-open` deliberately sets no `align-self` of its own — in this column it
+   would mean "left". */
+.mat-actions {
+  flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+}
+.mat-actions button { flex: none; }
+.mat-bblink { margin-right: 1px; }
+
+/* What kind of thing this is, in one fixed-width chip so the titles line up. */
+.mat-kind {
+  flex: none; width: 92px; margin-top: 1px; text-align: center;
+  font-size: 10px; text-transform: uppercase; letter-spacing: .03em; font-weight: 650;
+  color: var(--muted); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: var(--pill); padding: 2px 5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mat-kind.k-assignment,
+.mat-kind.k-asmt-test-link {
+  color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+
+.mat-score {
+  font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 42%, transparent);
+  background: color-mix(in srgb, var(--ok) 9%, transparent);
+  border-radius: var(--pill); padding: 0 8px; white-space: nowrap;
+}
+.mat-due {
+  font-size: 12px; color: var(--warn); white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border-radius: var(--pill); padding: 0 8px;
+}
+.mat-due.bad {
+  color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+  background: color-mix(in srgb, var(--bad) 9%, transparent);
+}
+
+.mat-body {
+  margin: 7px 0 0; font-size: 13px; color: var(--ink-2);
+  white-space: pre-wrap; overflow-wrap: anywhere; max-width: 78ch;
+}
+.mat-files { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+
+/* A handout is a thing you take, so it is a button rather than a label: the
+   arrow is the affordance, and it fills in once the file is actually here. */
+.mat-file {
+  display: inline-flex; align-items: center; gap: 7px; max-width: 100%;
+  font-size: 12px; font-weight: 400; color: var(--ink-2); min-height: 28px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: var(--r-2); padding: 3px 10px;
+}
+.mat-file .fn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mat-file em { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mat-file .dl { color: var(--muted); font-size: 11px; line-height: 1; }
+.mat-file:hover:not(:disabled) .dl { color: var(--accent); }
+.mat-file.have {
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+}
+.mat-file.have .dl { color: var(--ok); }
+
+/* ------------------------------------------------- the dashboard, unscrolled
+
+   Only where there is genuinely room for it: narrower than this the two panels
+   stack, and shorter than this the month grid would be squeezed past reading.
+   Outside that window the dashboard scrolls like everything else, which is the
+   behaviour every other screen keeps at all sizes. */
+@media (min-width: 1081px) and (min-height: 780px) {
+  .app.fit { height: 100vh; overflow: hidden; }
+  .app.fit .main {
+    height: 100vh; overflow: hidden;
+    display: flex; flex-direction: column; padding-bottom: 22px;
+  }
+
+  /* The two panels take the space the header and the figures leave. */
+  .app.fit .split { flex: 1; min-height: 0; align-items: stretch; margin-bottom: 0; }
+  .app.fit #calendar, .app.fit #deadlines {
+    height: 100%; min-height: 0; margin-bottom: 0;
+    display: flex; flex-direction: column;
+  }
+
+  /* The month is what stretches: six rows sharing whatever is left. It grows
+     into spare height but never shrinks past the height a row can be read at —
+     on a short window the panel scrolls instead of squeezing the month into a
+     band of numbers. */
+  .app.fit #calendar { overflow-y: auto; }
+  .app.fit .cal-grid {
+    /* Six rows share whatever is left, down to the height a row can still be
+       read at (~52px: the date and one chip). Past that the panel scrolls
+       rather than shrinking the month into a band of numbers. */
+    flex: 1 1 auto; min-height: 342px;
+    grid-template-rows: auto repeat(6, minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+  }
+  .app.fit .cal-cell {
+    min-height: 0; overflow: hidden;
+    /* The fade covers exactly the cell's bottom padding, so a day whose chips
+       fit is untouched and only one that overflows softens at the edge. */
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 6px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 6px), transparent);
+  }
+
+  /* The deadline list scrolls inside its own panel, so it cannot push the page
+     past the bottom of the screen. The fade says there is more below. */
+  .app.fit .due-list {
+    flex: 1; min-height: 0; overflow-y: auto;
+    margin-inline: -18px; padding-inline: 18px;
+  }
+  .app.fit #deadlines::after {
+    content: ""; position: absolute; left: 1px; right: 1px; bottom: 1px; height: 26px;
+    border-radius: 0 0 var(--r-4) var(--r-4); pointer-events: none;
+    background: linear-gradient(to top, var(--panel), transparent);
+  }
+  .app.fit .due-list > .due { margin-inline: 0; padding-inline: 0; width: 100%; }
+}
+
+/* ------------------------------------------------------------- responsive */
+
+/* Below this a tile is too narrow for its own label — "Points at stake" starts
+   to clip — so the deadline card takes the row on its own and the three figures
+   share the one below. Laid on its side there, the figure beside the detail,
+   rather than stacked in the corner of a very wide box. */
+@media (max-width: 1180px) {
+  .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero { grid-column: 1 / -1; }
+  .hero-body { flex-direction: row; align-items: baseline; gap: 24px; }
+  .hero-detail { flex: 1; }
+  .hero-num { margin-block: 2px; }
+}
+
+@media (max-width: 1080px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* One bar instead of a column: the course list is the part that can grow, so it
+   takes the slack and scrolls sideways while the rest stays put. */
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: sticky; top: 0; z-index: 20; height: auto; width: 100%;
+    flex-direction: row; align-items: center; gap: 10px;
+    padding: 9px 14px; border-right: none; border-bottom: 1px solid var(--line);
+    box-shadow: var(--shadow-1);
+  }
+  /* Everything but the mark goes into one scroller. Letting each nav size to
+     its own content and pushing the overflow onto the page is what used to drag
+     the whole document 900px sideways on a phone. */
+  .nav-strip {
+    display: flex; align-items: center; gap: 10px;
+    flex: 1 1 0%; min-width: 0;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    /* The fade is the only thing that says the strip keeps going. */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent);
+  }
+  .nav-strip::-webkit-scrollbar { display: none; }
+  /* Snapping means the strip never comes to rest on half a course name. */
+  .nav-strip { scroll-snap-type: x proximity; }
+  .nav-strip .nav { scroll-snap-align: start; }
+  .brand { flex: none; }
+  .sidebar nav { flex-direction: row; flex: none; }
+  .nav { flex: none; }
+  .nav-title { display: none; }
+  .nav-course-name { max-width: 104px; }
+  .nav-foot { margin-top: 0; }
+  /* The footer used to be three lines of facts and was dropped here for room.
+     It now holds the only way to log out, so it stays — as the button alone,
+     pinned outside the scrolling strip. The name goes: laid down as a bar there
+     is only so much width, and the course list is the part that has to keep
+     it. */
+  .side-foot {
+    flex: none; margin-top: 0; padding: 0; border-top: none;
+  }
+  .side-who { display: none; }
+  .main { padding: 18px 16px 64px; }
+}
+
+@media (max-width: 760px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Three tiles over two columns leaves one on its own; let it take the width
+     rather than sit beside a gap. */
+  .stats .tile:last-child { grid-column: 1 / -1; }
+  .set-item-body { grid-template-columns: minmax(0, 1fr); }
+  .facts > div { flex-direction: column; gap: 2px; }
+  .facts dt { width: auto; }
+  .course-score { flex: 1 1 100%; text-align: left; }
+}
+
+@media (max-width: 720px) {
+  .cal-grid { grid-auto-rows: minmax(62px, auto); }
+  /* Chips cannot carry a readable name here, and a bare colour is not an
+     identity — the day shows a count and opens its full list on tap. */
+  .chip, .cal-more { display: none; }
+  .cal-count { display: block; }
+  .cal-wd { font-size: 10px; letter-spacing: 0; padding: 6px 2px; }
+  .mat-kind { width: 74px; letter-spacing: 0; }
+  .mat-folder-head, .mat-tree > .mat-item { padding-inline: 14px; }
+  .mat-folder-body { padding: 0 14px 8px; }
+  .mat-folder .mat-folder > .mat-folder-body { padding-left: 20px; }
+  .drawer { width: 100vw; }
+  .panel { padding: 14px 15px; }
+  .due, .detail, .set-item-head, .due-more {
+    margin-inline: -15px; padding-inline: 15px; width: calc(100% + 30px);
+  }
+  .set-item { margin-inline: -15px; padding-inline: 15px; }
+  .app.fit .due-list { margin-inline: -15px; padding-inline: 15px; }
+  .it-cat { display: none; }
+}
+
+@media (max-width: 560px) {
+  .stats { grid-template-columns: minmax(0, 1fr); }
+  /* One card to a row: there is nothing left to line the footers up with, so
+     each card is as tall as its own content. */
+  .grid.cards { grid-auto-rows: auto; }
+  .ccard { min-height: 0; }
+  .ccard-foot { min-height: 0; padding-top: 10px; }
+  .hero, .tile { padding: 12px 14px; }
+  .tile-num { font-size: 27px; margin: 2px 0 4px; }
+  .hero-body { flex-direction: column; align-items: stretch; gap: 0; }
+  .hero-num { margin: 4px 0 6px; }
+  .topbar, .page-head { gap: 10px; }
+  .topbar .spacer, .page-head .spacer { display: none; }
+  .topbar h1, .page-head h1, .course-head h1 { font-size: 20px; }
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .main { padding: 16px 14px 56px; }
+}
