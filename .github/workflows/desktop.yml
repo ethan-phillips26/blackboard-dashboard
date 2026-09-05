@@ -57,7 +57,10 @@ jobs:
       - uses: astral-sh/setup-uv@v5
 
       - name: Install Python dependencies
-        run: uv sync --dev
+        # --locked, not a plain sync: it fails if uv.lock has drifted from
+        # pyproject.toml rather than quietly re-resolving, so all four runners
+        # freeze the same dependency set into the installers they sign.
+        run: uv sync --locked --dev
 
       - name: Build the frontend
         working-directory: src/blackboard_web/frontend
