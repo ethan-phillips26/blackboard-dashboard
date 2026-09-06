@@ -4,10 +4,12 @@
   "version": "0.1.0",
   "description": "Desktop shell for the Whiteboard dashboard.",
   "scripts": {
+    "dev": "npm --prefix src/blackboard_web/frontend run dev",
+    "server": "uv run blackboard-web --port 8765",
     "sidecar": "uv run python scripts/build_sidecar.py",
     "app": "npm run sidecar && cargo build --release --manifest-path src-tauri/Cargo.toml",
     "bundle": "npm run sidecar && tauri build",
-    "dev": "tauri dev",
+    "shell": "tauri dev",
     "tauri": "tauri"
   },
   "devDependencies": {

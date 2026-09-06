@@ -43,11 +43,6 @@ export default function DesktopLogin({ auth, waiting, error, onOpen }) {
           </>
         ) : (
           <form className="login-form" onSubmit={submit}>
-            <p className="note dim">
-              Your school's Blackboard address. Everything after this happens in
-              an ordinary browser window, so whatever your university asks for
-              will work.
-            </p>
             <label className="field">
               <span>Blackboard address</span>
               <input

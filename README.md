@@ -70,12 +70,23 @@ by hand the first time: log into Blackboard, open DevTools → Network, copy the
 `.env` as `BB_COOKIE`, along with `BB_HOST`. Once the desktop app has signed in
 once, both front ends share the cookie and this stops being necessary.
 
+## Working on the frontend
+
+```bash
+npm run server    # the API on :8765
+npm run dev       # Vite on :5173, hot reload, proxies /api to :8765
+```
+
+Open `http://127.0.0.1:5173`. Editing anything under `frontend/src` updates
+immediately; `:8765` serves the last built copy and will not.
+
 ## Desktop app
 
 ```bash
 npm ci
-npm run app       # freeze the sidecar, then build the shell
+npm run app       # build the frontend, freeze the sidecar, build the shell
 npm run bundle    # installers under src-tauri/target/release/bundle/
+npm run shell     # the shell against an already-frozen sidecar
 ```
 
 **Order matters.** `tauri-build` copies the frozen sidecar into `target/` at Rust

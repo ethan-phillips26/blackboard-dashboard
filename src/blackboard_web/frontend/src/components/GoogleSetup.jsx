@@ -164,7 +164,7 @@ export default function GoogleSetup() {
       </div>
 
       <p className="note dim gsetup-intro">
-        Opens an assignment's handout as an editable Google Doc.
+        Opens an assignment in Google Docs.
       </p>
 
       {error && <p className="err">{error}</p>}
@@ -192,7 +192,7 @@ export default function GoogleSetup() {
               <b>Last step: upload the JSON</b>
               <div className="note dim">
                 The download button beside the client you just created gives a{" "}
-                <code>client_secret….json</code>. Drop it in — nothing to retype.
+                <code>client_secret….json</code>.
               </div>
             </div>
             <div className="spacer" />

@@ -75,9 +75,12 @@ def main() -> int:
               "ones.", file=sys.stderr)
         return 1
 
-    if not (FRONTEND / "dist" / "index.html").exists():
-        print("building the frontend first (no dist/index.html)", flush=True)
-        run(["npm", "run", "build"], cwd=FRONTEND)
+    # Always, not just when dist/ is missing. A stale dist is indistinguishable
+    # from a fresh one at this point, and freezing it produces an app that runs
+    # yesterday's UI with no sign that anything is wrong. The build takes a
+    # second; the confusion it prevents does not.
+    print("building the frontend", flush=True)
+    run(["npm", "run", "build"], cwd=FRONTEND)
 
     if OUT.exists():
         shutil.rmtree(OUT)

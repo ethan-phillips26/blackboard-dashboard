@@ -450,17 +450,7 @@ function StoredData({ onReload }) {
     <section className="panel" id="stored-data">
       <div className="panel-head">
         <h2>Stored data</h2>
-        <span className="note dim">everything here comes back on the next sync</span>
       </div>
-      <p className="note">
-        Clears the cached courses, deadlines, announcements and content trees, the
-        grade weightings read from your syllabi, your local corrections to
-        deadlines and weights, which announcements have been popped up, and every
-        handout downloaded to this machine.
-      </p>
-      <p className="note dim">
-        Your Blackboard login and your Google Docs connection are left alone.
-      </p>
 
       {err && <p className="err">{err}</p>}
       {done && !armed && (
