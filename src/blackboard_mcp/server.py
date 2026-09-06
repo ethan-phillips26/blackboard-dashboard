@@ -38,7 +38,11 @@ from .client import (
     launch_url,
 )
 
-load_dotenv()
+# Explicitly, against the state directory. A bare load_dotenv() searches upward
+# from the working directory, which a packaged build does not control — it would
+# silently load whatever .env it happened to land near, and since os.environ
+# wins over the file, that beats BB_STATE_DIR too.
+load_dotenv(paths.state_file(".env"))
 
 log = logging.getLogger("blackboard_mcp")
 STORE = SessionStore()

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CALENDAR_URL, api } from "./api.js";
 import Announcements from "./components/Announcements.jsx";
-import AutoLogin from "./components/AutoLogin.jsx";
+import DesktopLogin from "./components/DesktopLogin.jsx";
 import AssignmentDrawer from "./components/AssignmentDrawer.jsx";
 import Calendar from "./components/Calendar.jsx";
 import CoursePage, { TABS } from "./components/CoursePage.jsx";
@@ -18,136 +18,12 @@ import { HOME, go, href, useRoute } from "./lib/route.js";
 import { useTitle } from "./lib/title.js";
 import { apply as applyTheme, stored as storedTheme, watch as watchTheme } from "./lib/theme.js";
 
-// What the sign-in is doing, in words. The Duo step is the one that matters:
-// it is the only one that takes minutes, and it is waiting on the person rather
-// than on the network — a spinner alone reads as a hang.
-const LOGIN_STAGES = {
-  opening: { label: "Opening your university's sign-in page…" },
-  credentials: { label: "Signing in with your username and password…" },
-  duo: { label: "Waiting for Duo — approve the push on your phone.", waiting: true },
-  trusting: { label: "Remembering this browser so Duo asks less often…" },
-  signed_in: { label: "Signed in — loading your courses…" },
-};
-
-
-function LoginPanel({ auth, error, rejected, stage, busy, onLogin, onCancel }) {
-  const [host, setHost] = useState(auth?.host ?? "");
-  const [username, setUsername] = useState(auth?.username ?? "");
-  const [password, setPassword] = useState("");
-  const passwordRef = useRef(null);
-
-  useEffect(() => {
-    if (auth?.host && !host) setHost(auth.host);
-    if (auth?.username && !username) setUsername(auth.username);
-  }, [auth, host, username]);
-
-  // A refused password is the one failure where the form has to be re-asked
-  // rather than re-submitted: empty the box that was wrong and put the cursor
-  // in it, so trying again is typing rather than hunting.
-  useEffect(() => {
-    if (!rejected) return;
-    setPassword("");
-    passwordRef.current?.focus();
-  }, [rejected]);
-
-  function submit(e) {
-    e.preventDefault();
-    onLogin({ host, username, password });
-  }
-
-  return (
-    <div className="boot">
-      <form className="panel login-panel" onSubmit={submit}>
-        <div className="login-brand">
-          <span className="brand-mark" aria-hidden="true" />
-          <h2>Sign in to Whiteboard</h2>
-        </div>
-        <label className="field">
-          <span>Blackboard host</span>
-          <input
-            type="text"
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            placeholder="blackboard.university.edu"
-            autoComplete="url"
-            required
-          />
-        </label>
-        <label className="field">
-          <span>Username</span>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            required
-          />
-        </label>
-        <label className="field">
-          <span>Password</span>
-          <input
-            ref={passwordRef}
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </label>
-
-        {auth?.has_password && (
-          <p className="note dim">
-            Saved credentials are present on the server. Re-enter the password to
-            start a new Blackboard login.
-          </p>
-        )}
-
-        {error && (
-          <p className={"err" + (rejected ? " banner" : "")}>
-            {error}
-            {rejected && (
-              <span className="note dim">
-                The saved password has been cleared — type it again.
-              </span>
-            )}
-          </p>
-        )}
-
-        {busy && stage && (
-          <p className={"login-stage" + (stage.waiting ? " waiting" : "")}
-             role="status">
-            <span className="spin" />
-            <span>{stage.label}</span>
-          </p>
-        )}
-
-        <button className="primary login-submit" type="submit" disabled={busy}>
-          {busy ? <><span className="spin" /> Signing in</> : "Sign in"}
-        </button>
-        {onCancel && (
-          <button className="linkish login-back" type="button" onClick={onCancel}>
-            Back to the saved account
-          </button>
-        )}
-      </form>
-    </div>
-  );
-}
-
 export default function App() {
   const [auth, setAuth] = useState(null);
+  const [desktopWaiting, setDesktopWaiting] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginError, setLoginError] = useState(null);
-  // "credentials" means the identity provider refused what was typed, which is
-  // the one failure that has to be re-asked rather than retried.
-  const [loginReason, setLoginReason] = useState(null);
-  const [stage, setStage] = useState(null);
-  const [loggingIn, setLoggingIn] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  // "running" while the saved credentials are being used, "failed" once they
-  // have not worked; `manualLogin` is the reader asking for the form instead.
-  const [autoState, setAutoState] = useState("running");
-  const [manualLogin, setManualLogin] = useState(false);
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -185,24 +61,6 @@ export default function App() {
     return watchTheme(theme, () => applyTheme("system"));
   }, [theme]);
 
-  // While a sign-in is in flight, ask the server what it is waiting for.
-  const signingIn = loggingIn || (!auth?.logged_in && autoState === "running");
-  useEffect(() => {
-    if (!signingIn) return setStage(null);
-    let live = true;
-    const tick = async () => {
-      try {
-        const progress = await api.loginProgress();
-        if (live) setStage(LOGIN_STAGES[progress.stage] ?? null);
-      } catch {
-        // The sign-in request itself reports real failures; a missed poll is
-        // only a missed caption.
-      }
-    };
-    tick();
-    const id = setInterval(tick, 1500);
-    return () => { live = false; clearInterval(id); };
-  }, [signingIn]);
 
   const loadAuth = useCallback(async () => {
     setAuthLoading(true);
@@ -336,77 +194,33 @@ export default function App() {
     await loadCalendar(false);
   }
 
-  // A cookie the status route accepts but that will not carry a request puts
-  // the app back on this screen the moment the dashboard loads, so the
-  // unattended path gets a ceiling. Pressing the button is not the unattended
-  // path and always tries.
-  const autoTries = useRef(0);
-
-  /** Sign back in with what the server already has, and go straight in. */
-  const relogin = useCallback(async (automatic = false) => {
-    if (automatic) {
-      if (autoTries.current >= 2) {
-        setAutoState("failed");
-        setLoginError(
-          "Signed in, but the session did not last. Try again, or sign in with " +
-          "a different account.");
-        return;
-      }
-      autoTries.current += 1;
-    } else {
-      autoTries.current = 0;
-    }
+  /** Ask the shell for a sign-in window, then wait for the session it yields. */
+  const openDesktopLogin = useCallback(async (host) => {
     setLoginError(null);
-    setError(null);
-    setAutoState("running");
     try {
-      const result = await api.relogin();
-      setAuth(result.auth);
-      setAutoState("running");
-      await load(false);
-      await loadCalendar(false);
-      if (result.sync_error) setError(result.sync_error);
+      await api.desktopLogin(host);
     } catch (e) {
       setLoginError(e.message);
-      setLoginReason(e.reason ?? null);
-      setAutoState("failed");
-      // The stored password is what this screen signs in with, and the server
-      // has just dropped it as wrong. Retrying it would fail identically, so go
-      // to the form instead.
-      if (e.reason === "credentials") {
-        setManualLogin(true);
-        refreshAuth();
+      return;
+    }
+    setDesktopWaiting(true);
+  }, []);
+
+  // The shell owns the window and hands the cookie straight to the server, so
+  // there is nothing to receive here — only a session to watch for. Polling
+  // rather than a socket keeps the dashboard page free of any privileged
+  // channel: it is served over loopback but it is still just a web page.
+  useEffect(() => {
+    if (!desktopWaiting) return undefined;
+    const id = setInterval(async () => {
+      const status = await api.authStatus().catch(() => null);
+      if (status?.logged_in) {
+        setDesktopWaiting(false);
+        setAuth(status);
       }
-    }
-  }, [load, loadCalendar, refreshAuth]);
-
-  const autoStart = useCallback(() => relogin(true), [relogin]);
-  const autoRetry = useCallback(() => relogin(false), [relogin]);
-
-  async function login(credentials) {
-    setLoginError(null);
-    setLoginReason(null);
-    setError(null);
-    setLoggingIn(true);
-    try {
-      const result = await api.login(credentials);
-      autoTries.current = 0;
-      setAuth(result.auth);
-      setManualLogin(false);
-      setData(null);
-      await load(false);
-      await loadCalendar(false);
-      if (result.sync_error) setError(result.sync_error);
-    } catch (e) {
-      setLoginError(e.message);
-      setLoginReason(e.reason ?? null);
-      // The server drops a refused password, so what it now knows about the
-      // account has changed — the form's own idea of it should follow.
-      if (e.reason === "credentials") refreshAuth();
-    } finally {
-      setLoggingIn(false);
-    }
-  }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [desktopWaiting]);
 
   async function logout() {
     setLoggingOut(true);
@@ -489,36 +303,15 @@ export default function App() {
     );
   }
 
+  // One way in. The window sign-in needs nothing from us but the address, and
+  // works at any institution, so there is no second path worth keeping.
   if (!auth?.logged_in) {
-    // Credentials on the server and no request for the form: sign back in.
-    if (auth?.configured && !manualLogin) {
-      return (
-        <AutoLogin
-          auth={auth}
-          state={autoState}
-          error={loginError}
-          stage={stage}
-          onStart={autoStart}
-          onRetry={autoRetry}
-          onManual={() => {
-            setManualLogin(true);
-            setLoginError(null);
-            setLoginReason(null);
-          }}
-        />
-      );
-    }
     return (
-      <LoginPanel
+      <DesktopLogin
         auth={auth}
-        error={loginError || error}
-        rejected={loginReason === "credentials"}
-        stage={stage}
-        busy={loggingIn}
-        onLogin={login}
-        onCancel={auth?.configured
-          ? () => { setManualLogin(false); setLoginError(null); setLoginReason(null); }
-          : null}
+        waiting={desktopWaiting}
+        error={loginError}
+        onOpen={openDesktopLogin}
       />
     );
   }

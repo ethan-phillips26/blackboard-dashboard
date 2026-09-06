@@ -11,8 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import shutil
-import time
 from pathlib import Path
 from typing import Any
 from mimetypes import guess_type
@@ -25,11 +23,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from blackboard_mcp import paths
-from blackboard_mcp.client import BlackboardError, html_to_text, normalize_host
-from blackboard_mcp.login import (
-    ENV_PATH, PROFILE_DIR, LoginError, run_login, write_env_cookie,
+from blackboard_mcp.client import (
+    BlackboardClient, BlackboardError, html_to_text, normalize_host,
 )
-from blackboard_mcp.session import SessionStore, best_cookie, seconds_remaining
+from blackboard_mcp.session import (
+    SessionStore, best_cookie, env_path, seconds_remaining, write_env_cookie,
+)
+
+ENV_PATH = env_path()
 
 from . import __version__
 from . import grades as G
@@ -64,13 +65,6 @@ class NeededBody(BaseModel):
     rate: float = 1.0
 
 
-class CredentialsBody(BaseModel):
-    host: str
-    username: str
-    password: str
-    timeout: float = 300.0
-
-
 def _set_env_values(values: dict[str, str]) -> None:
     """Persist Blackboard settings and mirror them into this running process."""
     ENV_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -90,37 +84,11 @@ def _drop_dashboard_cache() -> None:
         cache.drop(key)
 
 
-# What the login browser is doing right now. A sign-in is mostly spent waiting
-# on a phone, and a spinner that cannot say so is indistinguishable from a hang.
-_LOGIN: dict[str, Any] = {"stage": None, "active": False, "since": None}
-
-
-def _stage(name: str | None, *, active: bool | None = None) -> None:
-    _LOGIN["stage"] = name
-    if active is not None:
-        _LOGIN["active"] = active
-    _LOGIN["since"] = time.time()
-
-
-def _credentials_failed(e: LoginError) -> bool:
-    return getattr(e, "reason", "failed") == "credentials"
-
-
-def _login_failure(e: LoginError, fallback: str) -> HTTPException:
-    """Turn a failed login into a response the sign-in screen can act on.
-
-    A refused username or password is the one failure where retrying with what
-    is stored is pointless, so the stored password goes: `configured` drops to
-    false, which is what puts the form back in front of the reader instead of an
-    automatic sign-in that will fail the same way.
-    """
-    reason = getattr(e, "reason", "failed")
-    if reason == "credentials":
-        _set_env_values({"BB_PASSWORD": ""})
-    return HTTPException(
-        401 if reason == "credentials" else 502,
-        {"message": str(e) or fallback, "reason": reason},
-    )
+# Whether the desktop shell is driving this process. The shell owns a real
+# browser window, which is the only thing in this project that can carry an
+# arbitrary university's sign-in — no form to recognise, no selectors to keep up
+# with, and the second factor happens wherever the institution puts it.
+SHELL_MODE = False
 
 
 def _measure(paths_: list[Path]) -> int:
@@ -187,14 +155,14 @@ def _auth_status() -> dict[str, Any]:
 
     session = store.info()
     return {
-        "configured": bool(host and username and password),
         "logged_in": logged_in,
         "host": origin or host,
-        "username": username,
-        "has_password": bool(password),
         "cookie_source": source if cookie else None,
         "seconds_remaining": remaining,
         "expires": session.get("expires"),
+        # The dashboard offers the window sign-in only when something can open
+        # a window; in a browser tab there is nothing to open.
+        "desktop_login": SHELL_MODE,
     }
 
 
@@ -203,46 +171,67 @@ async def auth_status() -> dict[str, Any]:
     return _auth_status()
 
 
-@app.post("/api/auth/login")
-async def auth_login(body: CredentialsBody) -> dict[str, Any]:
-    host = body.host.strip()
-    username = body.username.strip()
-    password = body.password
-    if not host or not username or not password:
-        raise HTTPException(400, "Blackboard host, username, and password are required.")
+class DesktopLoginBody(BaseModel):
+    host: str
+
+
+@app.post("/api/auth/desktop/login")
+async def desktop_login(body: DesktopLoginBody) -> dict[str, Any]:
+    """Ask the shell to open its own window on the institution's sign-in page.
+
+    The request is made on stdout rather than over any RPC: the shell is already
+    reading this process's stdout to learn its port, and keeping the channel
+    one-way means the dashboard page never needs a handle on the window system.
+    """
+    if not SHELL_MODE:
+        raise HTTPException(409, "The window sign-in needs the desktop app.")
     try:
-        origin = normalize_host(host)
+        origin = normalize_host(body.host)
     except BlackboardError as e:
         raise HTTPException(400, str(e)) from e
 
-    _drop_dashboard_cache()
-    _set_env_values({
-        "BB_HOST": origin,
-        "BB_USERNAME": username,
-        "BB_PASSWORD": password,
-    })
+    # Saved before the window opens so a sign-in that is abandoned half way still
+    # leaves the address filled in next time.
+    _set_env_values({"BB_HOST": origin})
+    # The shell matches this prefix exactly; see main.rs.
+    print(f"BLACKBOARD_LOGIN={origin}", flush=True)
+    return {"requested": True, "host": origin}
 
-    _stage("opening", active=True)
+
+class DesktopCookieBody(BaseModel):
+    cookie: str
+    host: str
+
+
+@app.post("/api/auth/desktop/cookie")
+async def desktop_cookie(body: DesktopCookieBody) -> dict[str, Any]:
+    """Take a cookie the shell lifted out of its login window, if it is real.
+
+    Blackboard hands a BbRouter to anonymous visitors too, so its presence
+    proves nothing — asking the API who we are is the only test that separates a
+    signed-in session from a browser sitting on the login page. The shell polls,
+    so a `logged_in: false` here means "not yet", not "give up".
+    """
+    if not SHELL_MODE:
+        raise HTTPException(409, "The window sign-in needs the desktop app.")
     try:
-        result = await asyncio.to_thread(
-            run_login,
-            headless=True,
-            timeout=max(30.0, min(body.timeout, 900.0)),
-            force=True,
-            on_stage=_stage,
-        )
-    except LoginError as e:
-        raise _login_failure(e, "Login failed.") from e
-    except Exception as e:
-        raise HTTPException(502, {"message": f"Login failed: {e}",
-                                  "reason": "failed"}) from e
-    finally:
-        _stage(None, active=False)
+        origin = normalize_host(body.host)
+    except BlackboardError as e:
+        raise HTTPException(400, str(e)) from e
 
-    cookie = result["cookie"]
+    cookie = (body.cookie or "").strip()
+    if not cookie:
+        raise HTTPException(400, "No cookie supplied.")
+
+    try:
+        async with BlackboardClient(origin, cookie) as bb:
+            me = await bb.me()
+    except Exception:
+        return {"logged_in": False, "auth": _auth_status()}
+
     write_env_cookie(cookie)
     os.environ["BB_COOKIE"] = cookie
-    SessionStore().save(cookie, result["origin"])
+    SessionStore().save(cookie, origin)
 
     sync_status: dict[str, Any] | None = None
     sync_error: str | None = None
@@ -251,105 +240,18 @@ async def auth_login(body: CredentialsBody) -> dict[str, Any]:
     except Exception as e:
         sync_error = str(e)
 
-    return {
-        "auth": _auth_status(),
-        "user": result.get("user") or {},
-        "origin": result["origin"],
-        "sync": sync_status,
-        "sync_error": sync_error,
-    }
-
-
-class ReloginBody(BaseModel):
-    timeout: float = 300.0
-
-
-@app.post("/api/auth/relogin")
-async def auth_relogin(body: ReloginBody | None = None) -> dict[str, Any]:
-    """Sign back in with the credentials already stored, and nothing typed.
-
-    A Blackboard session dies on its own — an idle timeout, or the daily cap an
-    SSO puts on it regardless of activity — and the only thing the old sign-in
-    form asked for at that point was a password the server already had. This
-    runs the same login script against the stored credentials.
-
-    Unlike a deliberate sign-in this does **not** force a fresh authentication:
-    the login browser keeps its own profile, so when that profile's session is
-    still good the whole thing completes without a Duo push. Only when it is not
-    does the user see the prompt on their phone.
-    """
-    env = dotenv_values(ENV_PATH)
-    host = (os.environ.get("BB_HOST") or env.get("BB_HOST") or "").strip()
-    username = (os.environ.get("BB_USERNAME") or env.get("BB_USERNAME") or "").strip()
-    password = os.environ.get("BB_PASSWORD")
-    if password is None:
-        password = env.get("BB_PASSWORD") or ""
-    if not (host and username and password):
-        raise HTTPException(
-            400, "No saved credentials to sign in with — sign in with your "
-                 "Blackboard username and password first.")
-
-    # `_set_env_values` mirrors .env into this process, but a server started
-    # fresh has only the file; put them where run_login reads them.
-    os.environ.setdefault("BB_HOST", host)
-    os.environ["BB_USERNAME"] = username
-    os.environ["BB_PASSWORD"] = password
-
-    _stage("opening", active=True)
-    try:
-        result = await asyncio.to_thread(
-            run_login,
-            headless=True,
-            timeout=max(30.0, min((body.timeout if body else 300.0), 900.0)),
-            force=False,
-            on_stage=_stage,
-        )
-    except LoginError as e:
-        raise _login_failure(e, "Automatic sign-in failed.") from e
-    except Exception as e:
-        raise HTTPException(502, {"message": f"Automatic sign-in failed: {e}",
-                                  "reason": "failed"}) from e
-    finally:
-        _stage(None, active=False)
-
-    cookie = result["cookie"]
-    write_env_cookie(cookie)
-    os.environ["BB_COOKIE"] = cookie
-    SessionStore().save(cookie, result["origin"])
-
-    sync_error: str | None = None
-    try:
-        await sync.refresh(cache, force=False)
-    except Exception as e:
-        sync_error = str(e)
-
-    return {"auth": _auth_status(), "user": result.get("user") or {},
-            "sync_error": sync_error}
-
-
-@app.get("/api/auth/progress")
-async def auth_progress() -> dict[str, Any]:
-    """Which step the sign-in is on, for the screen that is waiting on it."""
-    since = _LOGIN.get("since")
-    return {
-        "stage": _LOGIN.get("stage"),
-        "active": bool(_LOGIN.get("active")),
-        "seconds": round(time.time() - since, 1) if since else None,
-    }
+    return {"logged_in": True, "auth": _auth_status(), "user": me,
+            "origin": origin, "sync": sync_status, "sync_error": sync_error}
 
 
 @app.post("/api/auth/logout")
 async def auth_logout() -> dict[str, Any]:
-    # The saved password goes with the cookie. It is what `relogin` signs back in
-    # with, so leaving it behind would mean the next screen silently undid the
-    # logout that was just asked for.
+    # BB_USERNAME and BB_PASSWORD are only ever left over from an older version
+    # that signed in with them; clearing them keeps a logout from leaving
+    # credentials on disk that nothing reads any more.
     _drop_dashboard_cache()
-    _set_env_values({"BB_COOKIE": "", "BB_PASSWORD": ""})
+    _set_env_values({"BB_COOKIE": "", "BB_USERNAME": "", "BB_PASSWORD": ""})
     SessionStore().path.unlink(missing_ok=True)
-    try:
-        shutil.rmtree(PROFILE_DIR)
-    except OSError:
-        pass
     return _auth_status()
 
 
@@ -882,10 +784,13 @@ def main() -> None:
                         help="port to serve on; 0 asks the OS for a free one")
     parser.add_argument("--open", action="store_true",
                         help="open the dashboard in the default browser once it is up")
-    parser.add_argument("--exit-on-stdin-close", action="store_true",
-                        help="shut down when stdin closes (how the desktop shell "
-                             "makes sure the server dies with it)")
+    parser.add_argument("--shell", action="store_true",
+                        help="running under the desktop shell: offer the window "
+                             "sign-in, and shut down when stdin closes")
     args = parser.parse_args()
+
+    global SHELL_MODE
+    SHELL_MODE = args.shell
 
     # Bound here rather than inside uvicorn so the port is known before the first
     # request is served: the shell is already waiting to read it.
@@ -911,7 +816,7 @@ def main() -> None:
 
     server = uvicorn.Server(uvicorn.Config(app, host=args.host, port=port))
 
-    if args.exit_on_stdin_close:
+    if args.shell:
         import threading
 
         def watch_parent() -> None:

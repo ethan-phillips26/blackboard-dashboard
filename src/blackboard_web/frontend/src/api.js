@@ -41,16 +41,13 @@ export const api = {
   },
   state: (refresh = false) => request(`/api/state?refresh=${refresh}`),
   authStatus: () => request("/api/auth/status"),
-  login: ({ host, username, password }) =>
-    request("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ host, username, password }),
-    }),
-  /** Which step a sign-in in flight is on — "duo" is the one worth saying. */
-  loginProgress: () => request("/api/auth/progress"),
-  /** Sign back in with what the server already has — nothing typed. */
-  relogin: () => request("/api/auth/relogin", { method: "POST", body: "{}" }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
+  /** Ask the desktop shell to open a real browser window on the school's login. */
+  desktopLogin: (host) =>
+    request("/api/auth/desktop/login", {
+      method: "POST",
+      body: JSON.stringify({ host }),
+    }),
   assignment: (courseId, contentId) =>
     request(`/api/assignments/${courseId}/${contentId}`),
   fetchFiles: (courseId, contentId) =>

@@ -8,11 +8,11 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -26,6 +26,11 @@ const POLL_INTERVAL: Duration = Duration::from_millis(150);
 /// app, and a machine that is offline or behind a captive portal must not stall
 /// on the way to a dashboard that is served entirely from disk.
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(6);
+
+/// How long the sign-in window may stay open. Generous because the clock is
+/// mostly spent on a phone: a push to approve, or a code to copy across.
+const LOGIN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const COOKIE_POLL: Duration = Duration::from_secs(1);
 
 /// The running server, held so it can be killed when the shell exits. An
 /// orphaned server would keep serving a logged-in session with no window
@@ -73,14 +78,14 @@ fn sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// The port is read off stdout rather than fixed here, because a fixed port
 /// collides with whatever else the machine is running — and with a second copy
 /// of this app.
-fn spawn_sidecar(exe: &PathBuf) -> Result<(Child, u16), String> {
+fn spawn_sidecar(app: &AppHandle, exe: &PathBuf) -> Result<(Child, u16), String> {
     let mut cmd = Command::new(exe);
     cmd.arg("--port")
         .arg("0")
         // Nothing is ever written down this pipe. It exists so that the server
         // sees EOF the moment this process goes away, however it goes away —
         // killing the child on a clean exit only covers the clean exits.
-        .arg("--exit-on-stdin-close")
+        .arg("--shell")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -116,17 +121,39 @@ fn spawn_sidecar(exe: &PathBuf) -> Result<(Child, u16), String> {
         .take()
         .ok_or_else(|| "the server produced no stdout".to_string())?;
     let (tx, rx) = mpsc::channel();
+    let handle = app.clone();
+    // The reader outlives the port handshake: the server keeps using this pipe
+    // to ask for things only the shell can do, sign-in being the one that
+    // matters. Keeping it one-way means the dashboard page never needs a handle
+    // on the window system to get a window opened for it.
+    let port_seen: Arc<Mutex<Option<u16>>> = Arc::new(Mutex::new(None));
+    let slot = port_seen.clone();
     thread::spawn(move || {
-        let mut sent = false;
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if !sent {
-                if let Some(value) = line.trim().strip_prefix("BLACKBOARD_PORT=") {
-                    if let Ok(port) = value.parse::<u16>() {
-                        sent = tx.send(port).is_ok();
-                        continue;
-                    }
+            let line = line.trim().to_string();
+
+            if let Some(value) = line.strip_prefix("BLACKBOARD_PORT=") {
+                if let Ok(port) = value.parse::<u16>() {
+                    *slot.lock().unwrap() = Some(port);
+                    let _ = tx.send(port);
+                    continue;
                 }
             }
+
+            if let Some(origin) = line.strip_prefix("BLACKBOARD_LOGIN=") {
+                match *slot.lock().unwrap() {
+                    // Its own thread: the sign-in sits open for as long as the
+                    // person takes, and this reader has a pipe to keep draining.
+                    Some(port) => {
+                        let handle = handle.clone();
+                        let origin = origin.to_string();
+                        thread::spawn(move || open_login(&handle, &origin, port));
+                    }
+                    None => eprintln!("[login] asked for before the port was known"),
+                }
+                continue;
+            }
+
             eprintln!("[server] {line}");
         }
     });
@@ -159,6 +186,101 @@ fn healthy(port: u16) -> bool {
         return false;
     };
     String::from_utf8_lossy(&buf[..n]).starts_with("HTTP/1.1 200")
+}
+
+/// Hand a cookie to the server, which is the only side that can say whether it
+/// means anything. Returns true once the server reports a real session.
+fn post_cookie(port: u16, origin: &str, cookie: &str) -> bool {
+    let body = serde_json::json!({ "cookie": cookie, "host": origin }).to_string();
+    let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) else {
+        return false;
+    };
+    // A cookie that works triggers a full sync before the response comes back.
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(120)));
+    let request = format!(
+        "POST /api/auth/desktop/cookie HTTP/1.1\r\n\
+         Host: 127.0.0.1:{port}\r\n\
+         Content-Type: application/json\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\r\n{body}",
+        body.len()
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut response = String::new();
+    if stream.read_to_string(&mut response).is_err() {
+        return false;
+    }
+    response.contains("\"logged_in\":true")
+}
+
+/// Open the institution's own sign-in page and wait for it to hand us a session.
+///
+/// This is why the desktop app needs no automation of the login at all: there is
+/// no form to recognise and no second factor to anticipate, because the person
+/// signs in exactly as they would in a browser. Whatever the institution does —
+/// a push, a code, a passkey, a redirect through three providers — happens in a
+/// real browser window and we only read the result.
+fn open_login(app: &AppHandle, origin: &str, port: u16) {
+    let Ok(url) = origin.parse::<Url>() else {
+        return eprintln!("[login] not a usable address: {origin}");
+    };
+
+    // A second window would leave the first one polling against a dead handle.
+    if let Some(existing) = app.get_webview_window("login") {
+        let _ = existing.close();
+    }
+
+    // Deliberately granted no capability: this window loads a university's
+    // identity provider, which must never reach a Tauri API.
+    let window = match WebviewWindowBuilder::new(app, "login", WebviewUrl::External(url.clone()))
+        .title("Sign in to Blackboard")
+        .inner_size(960.0, 780.0)
+        .center()
+        .build()
+    {
+        Ok(window) => window,
+        Err(e) => return eprintln!("[login] could not open the window: {e}"),
+    };
+
+    let deadline = Instant::now() + LOGIN_TIMEOUT;
+    let mut last = String::new();
+    while Instant::now() < deadline {
+        thread::sleep(COOKIE_POLL);
+
+        // Closing the window is how someone cancels; nothing else to clean up.
+        if app.get_webview_window("login").is_none() {
+            return;
+        }
+
+        let Ok(cookies) = window.cookies_for_url(url.clone()) else {
+            continue;
+        };
+        let Some(value) = cookies
+            .iter()
+            .find(|c| c.name() == "BbRouter")
+            .map(|c| c.value().to_string())
+        else {
+            continue;
+        };
+
+        // Blackboard reissues this as you move through the login, and hands one
+        // to anonymous visitors too, so only a changed value is worth asking
+        // about — and only the server can tell whether it is a real session.
+        if value == last {
+            continue;
+        }
+        last = value.clone();
+
+        if post_cookie(port, origin, &value) {
+            let _ = window.close();
+            return;
+        }
+    }
+
+    eprintln!("[login] gave up after {LOGIN_TIMEOUT:?}");
+    let _ = window.close();
 }
 
 fn status(app: &AppHandle, message: &str) {
@@ -254,7 +376,7 @@ fn start(app: &AppHandle) -> Result<u16, String> {
     offer_update(app);
 
     status(app, "Starting the server\u{2026}");
-    let (child, port) = spawn_sidecar(&exe)?;
+    let (child, port) = spawn_sidecar(app, &exe)?;
     app.state::<Sidecar>().0.lock().unwrap().replace(child);
 
     status(app, "Waiting for the dashboard\u{2026}");

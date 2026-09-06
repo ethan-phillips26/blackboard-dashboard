@@ -11,14 +11,13 @@ dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "mcp[cli]>=2.1.1",
-    "playwright>=1.62.0",
     "pypdf>=6.16.2",
     "python-dotenv>=1.2.3",
     "uvicorn>=0.52.4",
 ]
 
 [build-system]
-requires = ["uv_build>=0.10.6,<0.11.0"]
+requires = ["uv_build>=0.10.6,<0.13.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
@@ -28,5 +27,4 @@ dev = [
 
 [project.scripts]
 blackboard-mcp = "blackboard_mcp.server:main"
-blackboard-login = "blackboard_mcp.login:main"
 blackboard-web = "blackboard_web.app:main"

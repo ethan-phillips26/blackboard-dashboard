@@ -93,9 +93,6 @@ def main() -> int:
         "--distpath", str(OUT),
         "--workpath", str(WORK),
         "--specpath", str(WORK),
-        # Playwright keeps its driver (a bundled node plus JS) as package data,
-        # and drives the login. Without it the sign-in screen cannot work.
-        "--collect-all", "playwright",
         # The built frontend lives inside the package as data, not as modules.
         "--collect-data", "blackboard_web",
         # importlib.metadata backs __version__, and needs the dist-info present.

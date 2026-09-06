@@ -450,40 +450,16 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .login-panel p { margin: 0; }
 .login-panel .field + .field { margin-top: -3px; }
-.login-submit { width: 100%; margin-top: 4px; }
-.login-back { align-self: center; }
 
-/* ------------------------------------------------------------- auto sign-in */
-
-.auto-login { gap: 16px; }
-/* Which account is being used, said plainly — this screen acts on its own, so
-   it has to be obvious whose session it is bringing back. */
-.auto-who {
-  display: flex; flex-direction: column; gap: 1px;
-  background: var(--panel-2); border: 1px solid var(--line);
-  border-radius: var(--r-2); padding: 10px 12px; font-size: 13.5px;
+/* The form is one child of the panel, so the panel's own gap does not reach
+   between the address box and the button — without this they sit flush. */
+.login-form { display: flex; flex-direction: column; gap: 14px; }
+/* Sized to its label and centred, rather than stretched: at this width a
+   full-bleed button reads as another field rather than the action. */
+.login-submit {
+  align-self: center; margin-top: 6px;
+  padding-inline: 20px; font-weight: 600;
 }
-.auto-who b { font-weight: 650; }
-.auto-status {
-  display: flex; align-items: flex-start; gap: 10px;
-  font-size: 13.5px; color: var(--ink-2);
-}
-.auto-status .spin { margin-top: 4px; }
-.auto-duo { display: block; margin-top: 6px; }
-.auto-actions {
-  display: flex; flex-direction: column; align-items: center; gap: 12px;
-  margin-top: 2px;
-}
-.auto-actions .primary { width: 100%; }
-
-/* What the sign-in is waiting for, under the form. The Duo step gets the accent
-   because it is the one that is waiting on the reader rather than on us. */
-.login-stage {
-  display: flex; align-items: flex-start; gap: 9px;
-  margin: 2px 0 0; font-size: 13px; color: var(--ink-2);
-}
-.login-stage .spin { margin-top: 2px; flex: none; }
-.login-stage.waiting, .auto-status.waiting { color: var(--ink); font-weight: 500; }
 
 /* ---------------------------------------------------------- stats / figures */
 

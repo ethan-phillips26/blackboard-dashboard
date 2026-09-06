@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "description": "Desktop shell for the Whiteboard dashboard.",
   "scripts": {
-    "sidecar": "python scripts/build_sidecar.py",
+    "sidecar": "uv run python scripts/build_sidecar.py",
+    "app": "npm run sidecar && cargo build --release --manifest-path src-tauri/Cargo.toml",
+    "bundle": "npm run sidecar && tauri build",
     "dev": "tauri dev",
-    "build": "tauri build",
     "tauri": "tauri"
   },
   "devDependencies": {

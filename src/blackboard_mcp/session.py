@@ -129,3 +129,40 @@ def best_cookie(env_cookie: str | None, store: SessionStore,
     if env_left > stored_left:
         return env_cookie, "env (newer than stored session)"
     return stored, "session file (auto-renewed)"
+
+
+def env_path() -> Path:
+    """The `.env` this app reads and writes, in the one state directory."""
+    return paths.state_file(".env")
+
+
+def write_env_cookie(cookie: str, path: Path | None = None) -> None:
+    """Replace BB_COOKIE in `.env`, leaving every other line exactly as it was.
+
+    Written through a temp file so an interrupted write cannot leave a truncated
+    cookie — or a truncated `.env` — behind.
+    """
+    path = path or env_path()
+    try:
+        existing = path.read_text().splitlines()
+    except OSError:
+        existing = []
+    line = f"BB_COOKIE={cookie}"
+    for i, current in enumerate(existing):
+        if current.strip().startswith("BB_COOKIE="):
+            existing[i] = line
+            break
+    else:
+        existing.append(line)
+    body = "\n".join(existing) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".env.")
+    try:
+        os.write(fd, body.encode())
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass

@@ -55,6 +55,10 @@ jobs:
           workspaces: src-tauri
 
       - uses: astral-sh/setup-uv@v5
+        with:
+          # Pinned so all four runners resolve the lockfile identically, and so
+          # CI matches whatever machine `uv.lock` was last written on.
+          version: "0.10.6"
 
       - name: Install Python dependencies
         # --locked, not a plain sync: it fails if uv.lock has drifted from
@@ -93,15 +97,24 @@ jobs:
 
       # On a manual run there is no tag to release against, so just build and
       # keep the installers as artifacts — enough to test a change end to end.
+      #
+      # The override turns off updater artifacts, which a config carrying a
+      # public key would otherwise insist on signing. Signing belongs to the
+      # release path: secrets are not available to pull requests from forks, so
+      # requiring one here would break the build for every outside contributor.
       - name: Bundle only
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: npm run tauri build
+        run: npm run tauri build -- --config src-tauri/tauri.smoke.conf.json
 
+      # always(), so a late failure does not throw away installers that were
+      # already built — that is precisely the run whose output you want to
+      # inspect. warn rather than error on an empty match, so a build that died
+      # before producing anything reports its own failure instead of this one.
       - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ always() && !startsWith(github.ref, 'refs/tags/v') }}
         with:
           name: whiteboard-${{ matrix.name }}
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
           path: |
             src-tauri/target/release/bundle/deb/*.deb

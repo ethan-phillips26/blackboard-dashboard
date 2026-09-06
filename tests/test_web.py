@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import sys
+import io
+import contextlib
 import tempfile
+
+from dotenv import dotenv_values
 import time
 from pathlib import Path
 
@@ -588,12 +592,11 @@ saved_env = {
     k: os.environ.get(k)
     for k in ("BB_HOST", "BB_USERNAME", "BB_PASSWORD", "BB_COOKIE", "BB_SESSION_FILE")
 }
-old_env_path, old_profile, old_cache = webapp.ENV_PATH, webapp.PROFILE_DIR, webapp.cache
+old_env_path, old_cache = webapp.ENV_PATH, webapp.cache
 try:
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
         webapp.ENV_PATH = base / ".env"
-        webapp.PROFILE_DIR = base / ".bb_browser"
         cache_dir = base / "cache"
         cache_dir.mkdir()
         webapp.cache = Cache(cache_dir)
@@ -602,6 +605,9 @@ try:
             os.environ.pop(k, None)
 
         cookie = "BbRouter=expires:4102444800,id:abcd,signature:xyz"
+        # BB_USERNAME and BB_PASSWORD only ever arrive from a version that signed
+        # in with them. Nothing reads them now, and logging out should still take
+        # them with it rather than leaving credentials on disk.
         webapp._set_env_values({
             "BB_HOST": "https://bb.test",
             "BB_USERNAME": "student",
@@ -609,27 +615,26 @@ try:
             "BB_COOKIE": cookie,
         })
         status = webapp._auth_status()
-        check("auth status recognises saved credentials",
-              status["configured"] and status["host"] == "https://bb.test",
-              str(status))
+        check("auth status reports the configured host",
+              status["host"] == "https://bb.test", str(status))
         check("auth status reports the saved session",
               status["logged_in"] and status["cookie_source"] == "env", str(status))
-        check("auth status never returns the password",
-              "password" not in status and status["has_password"] is True, str(status))
+        check("auth status carries no credentials at all",
+              not any(k in status for k in ("password", "has_password", "username")),
+              str(status))
 
         webapp.cache.write("assignments", {"items": [1]})
-        webapp.PROFILE_DIR.mkdir()
-        (webapp.PROFILE_DIR / "cookie").write_text("browser cookie")
         asyncio.run(webapp.auth_logout())
         logged_out = webapp._auth_status()
         check("logout clears the active cookie", logged_out["logged_in"] is False,
               str(logged_out))
         check("logout clears cached coursework", webapp.cache.keys() == [],
               str(webapp.cache.keys()))
-        check("logout removes the saved browser profile",
-              not webapp.PROFILE_DIR.exists(), str(webapp.PROFILE_DIR))
+        left = dotenv_values(webapp.ENV_PATH)
+        check("logout leaves no credentials behind from an older version",
+              not left.get("BB_USERNAME") and not left.get("BB_PASSWORD"), str(left))
 finally:
-    webapp.ENV_PATH, webapp.PROFILE_DIR, webapp.cache = old_env_path, old_profile, old_cache
+    webapp.ENV_PATH, webapp.cache = old_env_path, old_cache
     for key, value in saved_env.items():
         if value is None:
             os.environ.pop(key, None)
@@ -882,68 +887,62 @@ with tempfile.TemporaryDirectory() as td:
     check("one written now is", c.get_data("content__1_")["schema"] == sync.TREE_SCHEMA)
 
 
-print("\n[login failures and progress]")
-from blackboard_mcp.login import LoginError  # noqa: E402
+print("\n[window sign-in]")
 
-check("a login error carries a reason",
-      LoginError("nope", reason="credentials").reason == "credentials")
-check("and defaults to a generic one", LoginError("nope").reason == "failed")
-
-from blackboard_mcp.login import _rejected_text  # noqa: E402
-
-check("a provider that says the password is incorrect is a rejection",
-      _rejected_text("the password you entered is incorrect. please try again."))
-check("so is an invalid user id",
-      _rejected_text("invalid user id or password"))
-check("so is a failed authentication",
-      _rejected_text("authentication failed — check your username"))
-# The words alone are not enough: a login page's own help text carries them
-# before anything has gone wrong.
-check("but the help text on a fresh login page is not",
-      not _rejected_text("trouble logging in? your browser may be out of date."))
-check("nor an unrelated error",
-      not _rejected_text("invalid request — the page has expired"))
-
-old_env_path = webapp.ENV_PATH
+old_shell, old_env_path = webapp.SHELL_MODE, webapp.ENV_PATH
+old_host = os.environ.get("BB_HOST")
 try:
     with tempfile.TemporaryDirectory() as td:
         webapp.ENV_PATH = Path(td) / ".env"
-        os.environ["BB_PASSWORD"] = "wrong one"
-        exc = webapp._login_failure(
-            LoginError("That username or password was not accepted.",
-                       reason="credentials"), "fallback")
-        check("a refused password answers 401", exc.status_code == 401,
-              str(exc.status_code))
-        check("it names the reason so the form can re-ask",
-              exc.detail["reason"] == "credentials", str(exc.detail))
-        check("it keeps the message human",
-              exc.detail["message"] == "That username or password was not accepted.")
-        check("and it drops the stored password",
-              os.environ["BB_PASSWORD"] == "", repr(os.environ["BB_PASSWORD"]))
+        client = TestClient(webapp.app)
 
-        os.environ["BB_PASSWORD"] = "still good"
-        exc = webapp._login_failure(LoginError("timed out", reason="timeout"), "x")
-        check("any other failure is a 502", exc.status_code == 502, str(exc.status_code))
-        check("which keeps the password", os.environ["BB_PASSWORD"] == "still good")
+        webapp.SHELL_MODE = False
+        denied = client.post("/api/auth/desktop/login", json={"host": "bb.test"})
+        check("in a browser tab there is no window to open",
+              denied.status_code == 409, str(denied.status_code))
+
+        webapp.SHELL_MODE = True
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            ok = client.post("/api/auth/desktop/login",
+                             json={"host": "bb.test/ultra/course"})
+        check("a sign-in request is accepted", ok.status_code == 200, ok.text[:120])
+        check("and a pasted deep link is trimmed to an origin",
+              ok.json()["host"] == "https://bb.test", ok.text[:120])
+        # main.rs matches this prefix exactly; changing it breaks the shell
+        # without breaking anything the tests would otherwise notice.
+        check("the shell is told on stdout, in the line it matches",
+              "BLACKBOARD_LOGIN=https://bb.test" in buf.getvalue(),
+              repr(buf.getvalue()[:120]))
+        check("and the address is kept for next time",
+              dotenv_values(webapp.ENV_PATH).get("BB_HOST") == "https://bb.test")
+
+        empty = client.post("/api/auth/desktop/cookie",
+                            json={"cookie": "   ", "host": "bb.test"})
+        check("an empty cookie is refused", empty.status_code == 400,
+              str(empty.status_code))
+
+        webapp.SHELL_MODE = False
+        shut = client.post("/api/auth/desktop/cookie",
+                           json={"cookie": "BbRouter=x", "host": "bb.test"})
+        check("and no cookie is taken from outside the desktop app",
+              shut.status_code == 409, str(shut.status_code))
 finally:
-    webapp.ENV_PATH = old_env_path
-    os.environ.pop("BB_PASSWORD", None)
+    webapp.SHELL_MODE, webapp.ENV_PATH = old_shell, old_env_path
+    if old_host is None:
+        os.environ.pop("BB_HOST", None)
+    else:
+        os.environ["BB_HOST"] = old_host
 
-webapp._stage("duo", active=True)
-progress = asyncio.run(webapp.auth_progress())
-check("progress reports the stage it is on",
-      progress["stage"] == "duo" and progress["active"] is True, str(progress))
-check("and how long it has been there", progress["seconds"] is not None)
-webapp._stage(None, active=False)
-progress = asyncio.run(webapp.auth_progress())
-check("an idle server reports no stage",
-      progress["stage"] is None and progress["active"] is False, str(progress))
-
-check("the login body no longer accepts a headed browser",
-      "headed" not in webapp.CredentialsBody.model_fields,
-      str(list(webapp.CredentialsBody.model_fields)))
-check("nor debug screenshots",
-      "debug" not in webapp.CredentialsBody.model_fields)
+# The old credential sign-in is gone, not merely unused: a route left behind
+# would still accept a password over HTTP.
+check("no route signs in with credentials any more",
+      not any(getattr(r, "path", "").startswith(("/api/auth/login",
+                                                 "/api/auth/relogin",
+                                                 "/api/auth/progress"))
+              for r in webapp.app.routes),
+      str([getattr(r, "path", "") for r in webapp.app.routes
+           if "auth" in getattr(r, "path", "")]))
 
 
 print("\n[clearing stored data]")

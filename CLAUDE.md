@@ -14,7 +14,6 @@ here submits, posts, or changes anything on the university's side. Keep it that 
 uv sync                                  # install
 .venv/bin/blackboard-web                 # the dashboard on http://127.0.0.1:8765
 .venv/bin/blackboard-mcp                 # the MCP server (stdio)
-.venv/bin/blackboard-login               # refresh the session cookie by hand
 
 cd src/blackboard_web/frontend
 npm run dev                              # Vite on :5173, proxies /api to :8765
@@ -36,9 +35,9 @@ git tag v0.2.0 && git push --tags
 ```
 
 `tests/stub_blackboard.py` is a fake Blackboard instance — tests never touch the real
-one. **Never call `/api/auth/login` or `/api/auth/relogin` while testing**: they drive a
-real headless browser against the university's SSO and can fire a Duo push at the user's
-phone. Stub those routes in Playwright instead.
+one. Nothing in the app signs in on its own any more: `/api/auth/desktop/login` only asks
+the shell to open a window, so there is no request that can reach the university's SSO
+unattended.
 
 After changing anything under `frontend/src`, run `npm run build` **and** restart
 `blackboard-web` if you touched Python — the server loads routes at import time.
@@ -49,8 +48,7 @@ After changing anything under `frontend/src`, run `npm run build` **and** restar
 src/blackboard_mcp/       the Blackboard layer + the MCP server
   client.py               async REST client; GET only; cookie auth
   server.py               8 MCP tools: list_due_dates, get_assignment, …
-  login.py                headless Playwright SSO; run_login(force=…)
-  session.py              cookie persistence + expiry maths
+  session.py              cookie persistence, expiry maths, .env writes
   paths.py                the one place that decides where state lives
 
 src/blackboard_web/       the dashboard
@@ -85,6 +83,11 @@ scripts/
 **State lives in one place, decided by `paths.py`.** `.env`, the session cookie, the
 cache and downloads all resolve through it — never against `__file__` or the working
 directory, because a packaged build has neither. `BB_STATE_DIR` overrides.
+
+A bare `load_dotenv()` breaks exactly this rule: it searches upward from the working
+directory and loads whatever `.env` it finds into `os.environ`, which `_auth_status`
+reads before the file — so it silently beats `BB_STATE_DIR`. Always pass the path
+(`load_dotenv(paths.state_file(".env"))`).
 
 **The calendar grid renders the generated `.ics`, not the JSON.** That is deliberate:
 what is on screen and what lands in Google Calendar cannot disagree. An edited due date
@@ -141,24 +144,8 @@ filter on that or a timeout will make a course vanish.
 lets the whole day be one target; adding an interactive chip back would nest a button
 in a button and break both.
 
-**A wrong password is detected by the password box, not the wording.** A form that
-comes back with the box *empty* was re-rendered by the provider — that is a refusal,
-whatever language it is in; a box still holding what we typed means the submit never
-took, so that is the retry path. Text matching is only the fast path. Do not "simplify"
-these into one check: the old wording-only version took 32s to notice a silent refusal
-and re-posted the password five times doing it, which some providers count towards a
-lockout.
-
-**A refused password is a `reason: "credentials"` failure** (`login.py` raises it,
-`_login_failure` maps it to a 401 and clears `BB_PASSWORD`). Anything else is a 502 and
-keeps the password, because retrying it is the right move. The sign-in screen polls
-`/api/auth/progress` for the stage — `duo` is the one worth showing.
-
 **Escape belongs to the topmost overlay.** The drawer and the document viewer both listen
 on `window`; the drawer registered first, so it checks `viewing` and stands down itself.
-
-**Logging out clears the saved password**, not just the cookie — that password is what
-auto-login signs back in with, so leaving it would silently undo the logout.
 
 **The port is a contract between two processes.** `blackboard-web --port 0` lets the OS
 pick a free port and prints `BLACKBOARD_PORT=<n>` on stdout as its first line; `main.rs`
@@ -178,8 +165,7 @@ stops a console appearing is `CREATE_NO_WINDOW` on the parent's spawn, not the s
 
 **PyInstaller runs in onedir mode, not onefile.** A onefile bundle unpacks its whole
 ~280MB payload to a temp directory on every launch — slow, and the shape antivirus
-heuristics flag hardest. Playwright's driver (a bundled node, ~124MB of the total) has to
-be collected explicitly or the sign-in screen has no browser to drive.
+heuristics flag hardest.
 
 **Build the Linux bundles on the oldest distro you can stand.** AppImage's bundled
 `strip` cannot read the `.relr.dyn` sections a current toolchain emits, and it fails the
@@ -216,6 +202,40 @@ what `/api/health` reports), `src-tauri/tauri.conf.json` (which the updater comp
 against the feed) and `package.json`. They answer different questions, so drift is
 invisible until an installed copy reports one version while updating from another.
 `scripts/build_sidecar.py` refuses to build when they disagree.
+
+**The desktop app signs in through a real browser window, not automation.** The shell
+opens a window on the institution's own login page and reads the session out of it with
+`cookies_for_url()`. There is no form to recognise and no second factor to anticipate, so
+it works at any university rather than only the ones somebody could test. It is the only
+sign-in there is: the credential form, the headless driver and Playwright itself were all
+removed with it. The MCP server has no window, so it reads whatever cookie the desktop app
+last wrote — or `BB_COOKIE`, pasted by hand.
+
+**That window is granted no capability, deliberately.** It loads a university's identity
+provider — third-party code — and must never reach a Tauri API. Only `splash` is listed
+in `capabilities/default.json`; the dashboard and the login window both get nothing.
+
+**A BbRouter proves nothing on its own.** Blackboard hands one to anonymous visitors, so
+`/api/auth/desktop/cookie` asks `users/me` before believing it, and answers
+`logged_in: false` for "not yet" rather than "give up" — the shell is polling. Without
+that check the app signs in happily with a cookie that cannot carry a request.
+
+**`cookies()` deadlocks on Windows** when called from a synchronous command or event
+handler. `open_login` runs on its own thread for that reason, not just for patience.
+
+**The stdout pipe carries requests, not just the port.** `BLACKBOARD_LOGIN=<origin>` asks
+the shell for a sign-in window. Keeping the channel one-way is what lets the dashboard
+page stay an ordinary web page: it never needs a handle on the window system to get a
+window opened for it.
+
+**Playwright is not a dependency any more.** It existed only to drive the old sign-in, and
+went with it — which is most of why the bundle is 135MB rather than 280MB. Adding it back
+would put a 124MB node driver into every installer.
+
+**Build the sidecar before cargo, never after.** `tauri-build` copies `sidecar/` into
+`target/` at Rust build time, so freezing a new sidecar without rebuilding the shell
+leaves the app running the previous one. That failure is silent and looks exactly like
+your change not working.
 
 ## Conventions
 
